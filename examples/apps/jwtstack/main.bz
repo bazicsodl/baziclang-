@@ -1,0 +1,80 @@
+import "std"
+
+
+let SECRET = "change-me-super-secret"
+
+
+fn json_ok(payload: string): ServerResponse {
+    return http_json(200, payload)
+}
+
+
+fn json_err(status: int, message: string): ServerResponse {
+    let body = (("{\"error\":\"" + json_escape(message)) + "\"}")
+    return http_json(status, body)
+}
+
+
+fn bearer_token(req: ServerRequest): string {
+    let auth = http_header_get(req.headers, "Authorization")
+    if (auth == "") {
+        return ""
+    }
+    if starts_with(auth, "Bearer ") {
+        return replace(auth, "Bearer ", "")
+    }
+    return ""
+}
+
+
+fn handler_post_login(req: ServerRequest): ServerResponse {
+    let body = req.body
+    let emailRes = json_get_string(body, "email")
+    let passRes = json_get_string(body, "password")
+    if (!emailRes.is_ok || !passRes.is_ok) {
+        return json_err(400, "invalid body")
+    }
+    let email = emailRes.value
+    let pass = passRes.value
+    if ((email != "admin@bazic.dev") || (pass != "secret")) {
+        return json_err(401, "invalid credentials")
+    }
+    let header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
+    let payload = (("{\"sub\":\"admin\",\"email\":\"" + json_escape(email)) + "\"}")
+    let tok = jwt_sign_hs256(header, payload, SECRET)
+    if !tok.is_ok {
+        return json_err(500, tok.err.message)
+    }
+    return json_ok((("{\"token\":\"" + tok.value) + "\"}"))
+}
+
+
+fn handler_get_me(req: ServerRequest): ServerResponse {
+    let token = bearer_token(req)
+    if (token == "") {
+        return json_err(401, "missing token")
+    }
+    let okv = jwt_verify_hs256(token, SECRET)
+    if !okv.is_ok {
+        return json_err(401, okv.err.message)
+    }
+    if !okv.value {
+        return json_err(401, "invalid token")
+    }
+    return json_ok("{\"user\":\"admin\"}")
+}
+
+
+fn handler_get_csrf(req: ServerRequest): ServerResponse {
+    let token = csrf_token()
+    if !token.is_ok {
+        return json_err(500, token.err.message)
+    }
+    return json_ok((("{\"csrf\":\"" + token.value) + "\"}"))
+}
+
+
+fn handler_get_root(req: ServerRequest): ServerResponse {
+    let body = "{\"ok\":true,\"routes\":[\"POST /login\",\"GET /me\",\"GET /csrf\"]}"
+    return json_ok(body)
+}

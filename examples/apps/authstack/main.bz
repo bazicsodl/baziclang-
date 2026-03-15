@@ -1,0 +1,93 @@
+import "std"
+
+
+let DB_PATH = "auth.db"
+
+
+fn main(): void {
+    let _ = db_exec(DB_PATH, "create table if not exists users (id integer primary key autoincrement, email text unique, password_hash text)")
+    let _ = session_init(DB_PATH)
+    let res = http_serve_app(":8081")
+    if !res.is_ok {
+        println(res.err.message)
+    }
+}
+
+
+fn post_auth_p_register(req: ServerRequest): ServerResponse {
+    let email_res = json_get_string(req.body, "email")
+    let pass_res = json_get_string(req.body, "password")
+    if (!email_res.is_ok || !pass_res.is_ok) {
+        return http_json(400, "{\"error\":\"invalid input\"}")
+    }
+    let email = email_res.value
+    let password = pass_res.value
+    let hash_res = auth_hash_password(password)
+    if !hash_res.is_ok {
+        return http_json(500, "{\"error\":\"hash failed\"}")
+    }
+    let hash = hash_res.value
+    let ins = db_exec(DB_PATH, (((("insert into users (email, password_hash) values ('" + replace(email, "'", "''")) + "', '") + replace(hash, "'", "''")) + "')"))
+    if !ins.is_ok {
+        return http_json(409, "{\"error\":\"email exists\"}")
+    }
+    let token = auth_session_create(DB_PATH, email, 14)
+    if !token.is_ok {
+        return http_json(500, "{\"error\":\"session failed\"}")
+    }
+    let body = "{\"ok\":true}\n"
+    let resp = http_json(201, body)
+    let headers = ((resp.headers + "\n") + auth_cookie_header("bazic_session", token.value, 14, false))
+    return ServerResponse { body: resp.body, headers: headers, status: resp.status }
+}
+
+
+fn post_auth_p_login(req: ServerRequest): ServerResponse {
+    let email_res = json_get_string(req.body, "email")
+    let pass_res = json_get_string(req.body, "password")
+    if (!email_res.is_ok || !pass_res.is_ok) {
+        return http_json(400, "{\"error\":\"invalid input\"}")
+    }
+    let email = email_res.value
+    let password = pass_res.value
+    let rows = db_query(DB_PATH, (("select password_hash from users where email='" + replace(email, "'", "''")) + "' limit 1"))
+    if !rows.is_ok {
+        return http_json(401, "{\"error\":\"invalid credentials\"}")
+    }
+    let data = rows.value
+    let lines = replace(data, "\r", "")
+    let parts = replace(lines, "\n", "\t")
+    if !contains(parts, "\t") {
+        return http_json(401, "{\"error\":\"invalid credentials\"}")
+    }
+    let hash = replace(parts, "password_hash\t", "")
+    let check = auth_verify_password(password, hash)
+    if (!check.is_ok || !check.value) {
+        return http_json(401, "{\"error\":\"invalid credentials\"}")
+    }
+    let token = auth_session_create(DB_PATH, email, 14)
+    if !token.is_ok {
+        return http_json(500, "{\"error\":\"session failed\"}")
+    }
+    let resp = http_json(200, "{\"ok\":true}\n")
+    let headers = ((resp.headers + "\n") + auth_cookie_header("bazic_session", token.value, 14, false))
+    return ServerResponse { body: resp.body, headers: headers, status: resp.status }
+}
+
+
+fn post_auth_p_logout(req: ServerRequest): ServerResponse {
+    let _ = auth_session_destroy(DB_PATH, req, "bazic_session")
+    let resp = http_json(200, "{\"ok\":true}\n")
+    let headers = ((resp.headers + "\n") + auth_cookie_clear_header("bazic_session", false))
+    return ServerResponse { body: resp.body, headers: headers, status: resp.status }
+}
+
+
+fn get_auth_p_me(req: ServerRequest): ServerResponse {
+    let user_res = auth_session_user(DB_PATH, req, "bazic_session")
+    if !user_res.is_ok {
+        return http_json(200, "{\"user\":null}\n")
+    }
+    let body = (("{\"user\":{\"id\":\"" + user_res.value) + "\"}}\n")
+    return http_json(200, body)
+}

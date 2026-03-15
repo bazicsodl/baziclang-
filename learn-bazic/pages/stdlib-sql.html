@@ -1,0 +1,46 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib sql ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib sql</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? sql</div>
+  <h1>std/sql</h1>
+  <p>SQL helper functions for safe query building.</p>
+
+  <h2>Build conditions</h2>
+  <pre><code>let where = sql_where(sql_and(
+    sql_eq("status", sql_value_string("active")),
+    sql_eq("tenant_id", sql_param_int(1))
+));
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

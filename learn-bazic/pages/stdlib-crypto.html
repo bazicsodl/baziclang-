@@ -1,0 +1,54 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib crypto ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib crypto</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? crypto</div>
+  <h1>std/crypto</h1>
+  <p>Hashing and secure tokens.</p>
+
+  <h2>SHA-256</h2>
+  <pre><code>let hex = crypto_sha256_hex("hello");
+println(hex);
+</code></pre>
+
+  <h2>Random tokens</h2>
+  <pre><code>let token = crypto_random_hex(16);
+if token.is_ok { println(token.value); }
+</code></pre>
+
+  <h2>Passwords</h2>
+  <pre><code>let hash = crypto_bcrypt_hash("secret", 10);
+let ok = crypto_bcrypt_verify("secret", hash.value);
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

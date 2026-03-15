@@ -1,0 +1,13 @@
+import "std"
+
+
+fn dashboard_page(clicks: int, name: string): string {
+    let kpi1 = ui_card("Users", ui_p("1,204 active"))
+    let kpi2 = ui_card("Latency", ui_p("142ms p95"))
+    let kpi3 = ui_card("Errors", ui_p("0.7%"))
+    let kpis = ui_element("div", ui_props("", "grid"), ui_children_three(kpi1, kpi2, kpi3))
+    let activity = ui_list(ui_children_three(ui_list_item("Deployed v1.0‑rc2"), ui_list_item("DB backup complete"), ui_list_item("New signup: Ada")))
+    let activity_card = ui_card("Activity", activity)
+    let body = ui_element("div", ui_props("", "stack"), ui_children_two(kpis, activity_card))
+    return ui_section("Dashboard", body)
+}

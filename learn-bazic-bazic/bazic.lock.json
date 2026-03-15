@@ -1,0 +1,19 @@
+{
+  "name": "learn-bazic-bazic",
+  "version": 2,
+  "signing_public_key": "sN7qx8HLiIHezIQ80WRpI6Gzt4A69waKdeCvdEZRbMk=",
+  "deps": {
+    "std": {
+      "provenance": {
+        "source_path": "C:\\Users\\Ipeh\\Documents\\baziclang\\learn-bazic-bazic\\stdlib_local",
+        "source_kind": "local_path"
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "checksum": "24e77e27b2b4b0dd9c06ae434cb302d74cbff0b79709c7c7f5b4e0711cf52fae"
+      },
+      "signature": "1bSQVODCmWqqOlzu0T95z+5KRDyKuHzTf/I0AJcWFKcmzwq9mblKhDyYfp4y739G3f5f8fiRnm7LI8VRFHUbDg=="
+    }
+  },
+  "generated_at": "2026-03-14T05:51:03Z"
+}

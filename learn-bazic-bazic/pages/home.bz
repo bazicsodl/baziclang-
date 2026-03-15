@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_home(): string {
+    let body = section("Home", p("Content coming soon."))
+    return page_layout("Home", "home", body)
+}

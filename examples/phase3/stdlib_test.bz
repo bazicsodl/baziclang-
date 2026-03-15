@@ -1,0 +1,91 @@
+import "std"
+
+
+fn test_len(): void {
+    assert((len("bazic") == 5))
+}
+
+
+fn test_contains(): void {
+    assert(contains("bazic", "zi"))
+    assert(!contains("bazic", "zo"))
+}
+
+
+fn test_prefix_suffix(): void {
+    assert(starts_with("bazic", "ba"))
+    assert(!starts_with("bazic", "za"))
+    assert(ends_with("bazic", "ic"))
+    assert(!ends_with("bazic", "id"))
+}
+
+
+fn test_case(): void {
+    assert((to_upper("BaZiC") == "BAZIC"))
+    assert((to_lower("BaZiC") == "bazic"))
+}
+
+
+fn test_trim_replace_repeat(): void {
+    assert((trim_space("  bazic  ") == "bazic"))
+    assert((replace("bazic", "zi", "za") == "bazac"))
+    assert((repeat("ba", 3) == "bababa"))
+    assert((repeat("ba", 0) == ""))
+}
+
+
+fn test_str(): void {
+    assert((str(123) == "123"))
+    assert((str(true) == "true"))
+}
+
+
+fn test_parse_int(): void {
+    let ok = parse_int("42")
+    assert(ok.is_ok)
+    assert((ok.value == 42))
+    let bad = parse_int("nope")
+    assert(!bad.is_ok)
+    assert(contains(bad.err.message, "invalid"))
+}
+
+
+fn test_parse_float(): void {
+    let ok = parse_float("3.25")
+    assert(ok.is_ok)
+    assert((ok.value == 3.25))
+    let bad = parse_float("NaN nope")
+    assert(!bad.is_ok)
+    assert(contains(bad.err.message, "invalid"))
+}
+
+
+fn test_unwrap_or_result_or(): void {
+    let o = some(7)
+    let n = none(0)
+    assert((unwrap_or(o, 1) == 7))
+    assert((unwrap_or(n, 1) == 1))
+    let okv = ok(9, Error { message: "" })
+    let errv = err(0, Error { message: "bad" })
+    assert((result_or(okv, 1) == 9))
+    assert((result_or(errv, 1) == 1))
+}
+
+
+fn test_hmac_jwt_csrf(): void {
+    let h = crypto_hmac_sha256_hex("data", "secret")
+    assert((len(h) == 64))
+    let header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
+    let payload = "{\"sub\":\"123\",\"name\":\"Ada\"}"
+    let tok = jwt_sign_hs256(header, payload, "secret")
+    assert(tok.is_ok)
+    let okv = jwt_verify_hs256(tok.value, "secret")
+    assert(okv.is_ok)
+    assert(okv.value)
+    let bad = jwt_verify_hs256(tok.value, "wrong")
+    assert(bad.is_ok)
+    assert(!bad.value)
+    let csrf = csrf_token()
+    assert(csrf.is_ok)
+    assert((len(csrf.value) == 64))
+}

@@ -1,0 +1,63 @@
+{
+  "name": "baziclang",
+  "displayName": "Bazic Language",
+  "description": "Bazic language support (LSP diagnostics, completion, go-to-def, rename).",
+  "version": "0.1.0",
+  "publisher": "baziclang",
+  "icon": "images/icon.png",
+  "keywords": ["bazic", "language", "lsp", "compiler"],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["*"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "bazic",
+        "aliases": ["Bazic"],
+        "extensions": [".bz"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "Bazic",
+      "properties": {
+        "bazic.autoFixOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Apply preferred Bazic quick fixes on save (missing semicolons/quotes/brackets, invalid escapes, &&/||)."
+        },
+        "bazic.formatOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format Bazic files on save using bazfmt."
+        }
+      }
+    },
+    "iconThemes": [
+      {
+        "id": "bazic-seti",
+        "label": "Bazic (Seti + BZ)",
+        "path": "./icons/bazic-seti-icon-theme.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "bazic",
+        "scopeName": "source.bazic",
+        "path": "./syntaxes/bazic.tmLanguage.json"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.7.1"
+  },
+  "overrides": {
+    "js-yaml": "4.1.0"
+  }
+}

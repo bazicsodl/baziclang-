@@ -1,0 +1,23 @@
+name: bench-baseline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  bench-baseline:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Capture Baseline
+        shell: pwsh
+        run: .\scripts\bench_baseline.ps1 -Platform windows
+      - name: Upload Baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline
+          path: bench/baseline.xml

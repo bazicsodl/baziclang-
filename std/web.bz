@@ -1,0 +1,8 @@
+fn web_get_json(key: string): Result[string,Error] {
+    return __std_web_get_json(key)
+}
+
+
+fn web_set_json(key: string, jsonText: string): Result[bool,Error] {
+    return __std_web_set_json(key, jsonText)
+}

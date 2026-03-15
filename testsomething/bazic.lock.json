@@ -1,0 +1,19 @@
+{
+  "name": "testsomething",
+  "version": 2,
+  "signing_public_key": "Ikar1QrfWy7QT0Nk58Y9gs7j8pwi3IGpr5UVC9C46eQ=",
+  "deps": {
+    "std": {
+      "provenance": {
+        "source_path": "C:\\Users\\Ipeh\\Documents\\baziclang\\std",
+        "source_kind": "local_path"
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "checksum": "f24fdafadbf23593f09c02a39d32a1402ac0db15afc8f1e5c4572813f147f1e2"
+      },
+      "signature": "pACvziKwSS5NadbOQqDps1ZUT64C165EIpRScGzT06iWSnSCPgHPs0n2/1cc3aXN340kxSAm8MY6AVLDAi2sCA=="
+    }
+  },
+  "generated_at": "2026-03-06T20:12:56Z"
+}

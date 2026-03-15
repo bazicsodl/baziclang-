@@ -1,0 +1,26 @@
+<benchmarks>
+  <baseline platform="windows" threshold_percent="40">
+    <go>
+      <match_hot>22</match_hot>
+      <string_builder>9450</string_builder>
+      <jwt_sign_verify>50</jwt_sign_verify>
+      <loop_arith>14</loop_arith>
+      <json_validate>10</json_validate>
+      <string_concat>91</string_concat>
+      <crypto_sha256>16</crypto_sha256>
+      <parse_int_float>20</parse_int_float>
+      <base64_roundtrip>4</base64_roundtrip>
+    </go>
+    <llvm>
+      <match_hot>35</match_hot>
+      <string_builder>49949</string_builder>
+      <jwt_sign_verify>97</jwt_sign_verify>
+      <loop_arith>0</loop_arith>
+      <json_validate>2</json_validate>
+      <string_concat>143</string_concat>
+      <crypto_sha256>14</crypto_sha256>
+      <parse_int_float>28</parse_int_float>
+      <base64_roundtrip>9</base64_roundtrip>
+    </llvm>
+  </baseline>
+</benchmarks>

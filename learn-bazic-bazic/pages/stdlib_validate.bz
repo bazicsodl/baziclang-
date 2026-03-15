@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_validate(): string {
+    let body = section("Stdlib: validate", p("Content coming soon."))
+    return page_layout("Stdlib: validate", "stdlib", body)
+}

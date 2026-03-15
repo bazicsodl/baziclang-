@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Bazic" Manufacturer="Bazic" Language="1033" Version="{{Version}}" UpgradeCode="{{UpgradeCode}}">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Bazic is already installed." />
+    <MediaTemplate />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="Bazic">
+          <Component Id="BazicBinaries" Guid="B3943B17-AA1C-4F81-A832-9008B044F6FD">
+            <File Id="BazicExe" Source="{{SourceDir}}\\bazic.exe" KeyPath="yes" />
+            <File Id="BazcExe" Source="{{SourceDir}}\\bazc.exe" KeyPath="no" />
+            <File Id="BazlspExe" Source="{{SourceDir}}\\bazlsp.exe" KeyPath="no" />
+          </Component>
+          <Component Id="BazicVsix" Guid="E1A1D931-2C6C-44B4-A56E-9BB75AB0A7D2">
+            <File Id="BazicVsixFile" Source="{{SourceDir}}\\baziclang.vsix" KeyPath="yes" />
+          </Component>
+          <Component Id="BazicPath" Guid="D4D33662-BCDB-4680-B25D-A75E94B7A91F">
+            <CreateFolder />
+            <Environment Id="BazicEnvPath" Name="PATH" Action="set" Part="last" System="yes" Value="[INSTALLFOLDER]" />
+            <Environment Id="BazicEnvHome" Name="BAZIC_HOME" Action="set" Part="all" System="yes" Value="[INSTALLFOLDER]" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="BazicFeature" Title="Bazic" Level="1">
+      <ComponentRef Id="BazicBinaries" />
+      <ComponentRef Id="BazicVsix" />
+      <ComponentRef Id="BazicPath" />
+      <ComponentGroupRef Id="StdFiles" />
+      <ComponentGroupRef Id="RuntimeFiles" />
+    </Feature>
+  </Product>
+</Wix>

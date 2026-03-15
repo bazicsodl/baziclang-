@@ -1,0 +1,197 @@
+import "std"
+
+
+struct Board {
+    c1: string
+    c2: string
+    c3: string
+    c4: string
+    c5: string
+    c6: string
+    c7: string
+    c8: string
+    c9: string
+}
+
+
+fn empty_board(): Board {
+    return Board { c1: ".", c2: ".", c3: ".", c4: ".", c5: ".", c6: ".", c7: ".", c8: ".", c9: "." }
+}
+
+
+fn draw(b: Board): void {
+    println(((((b.c1 + "|") + b.c2) + "|") + b.c3))
+    println("-+-+-")
+    println(((((b.c4 + "|") + b.c5) + "|") + b.c6))
+    println("-+-+-")
+    println(((((b.c7 + "|") + b.c8) + "|") + b.c9))
+}
+
+
+fn line(a: string, b: string, c: string): string {
+    if (((a != ".") && (a == b)) && (b == c)) {
+        return a
+    }
+    return ""
+}
+
+
+fn winner(b: Board): string {
+    let w = line(b.c1, b.c2, b.c3)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c4, b.c5, b.c6)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c7, b.c8, b.c9)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c1, b.c4, b.c7)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c2, b.c5, b.c8)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c3, b.c6, b.c9)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c1, b.c5, b.c9)
+    if (w != "") {
+        return w
+    }
+    w = line(b.c3, b.c5, b.c7)
+    if (w != "") {
+        return w
+    }
+    return ""
+}
+
+
+fn is_full(b: Board): bool {
+    return (((((((((b.c1 != ".") && (b.c2 != ".")) && (b.c3 != ".")) && (b.c4 != ".")) && (b.c5 != ".")) && (b.c6 != ".")) && (b.c7 != ".")) && (b.c8 != ".")) && (b.c9 != "."))
+}
+
+
+fn cell_at(b: Board, idx: int): string {
+    if (idx == 1) {
+        return b.c1
+    }
+    if (idx == 2) {
+        return b.c2
+    }
+    if (idx == 3) {
+        return b.c3
+    }
+    if (idx == 4) {
+        return b.c4
+    }
+    if (idx == 5) {
+        return b.c5
+    }
+    if (idx == 6) {
+        return b.c6
+    }
+    if (idx == 7) {
+        return b.c7
+    }
+    if (idx == 8) {
+        return b.c8
+    }
+    if (idx == 9) {
+        return b.c9
+    }
+    return "."
+}
+
+
+fn set_cell(b: Board, idx: int, v: string): Board {
+    if (idx == 1) {
+        return Board { c1: v, c2: b.c2, c3: b.c3, c4: b.c4, c5: b.c5, c6: b.c6, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 2) {
+        return Board { c1: b.c1, c2: v, c3: b.c3, c4: b.c4, c5: b.c5, c6: b.c6, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 3) {
+        return Board { c1: b.c1, c2: b.c2, c3: v, c4: b.c4, c5: b.c5, c6: b.c6, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 4) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: v, c5: b.c5, c6: b.c6, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 5) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: b.c4, c5: v, c6: b.c6, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 6) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: b.c4, c5: b.c5, c6: v, c7: b.c7, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 7) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: b.c4, c5: b.c5, c6: b.c6, c7: v, c8: b.c8, c9: b.c9 }
+    }
+    if (idx == 8) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: b.c4, c5: b.c5, c6: b.c6, c7: b.c7, c8: v, c9: b.c9 }
+    }
+    if (idx == 9) {
+        return Board { c1: b.c1, c2: b.c2, c3: b.c3, c4: b.c4, c5: b.c5, c6: b.c6, c7: b.c7, c8: b.c8, c9: v }
+    }
+    return b
+}
+
+
+fn main(): void {
+    println("Bazic Tic-Tac-Toe")
+    println("Enter a move as a number 1-9:")
+    println("1 2 3")
+    println("4 5 6")
+    println("7 8 9")
+    let b = empty_board()
+    let current = "X"
+    while true {
+        println("")
+        draw(b)
+        println((("Player " + current) + ", choose a square (1-9):"))
+        let line = io_read_line()
+        if !line.is_ok {
+            println(line.err.message)
+            return
+        }
+        let raw = trim_space(line.value)
+        let parsed = parse_int(raw)
+        if !parsed.is_ok {
+            println("Invalid number. Try again.")
+        } else {
+            let idx = parsed.value
+            if ((idx < 1) || (idx > 9)) {
+                println("Move must be 1-9.")
+            } else {
+                if (cell_at(b, idx) != ".") {
+                    println("That square is already taken.")
+                } else {
+                    b = set_cell(b, idx, current)
+                    let w = winner(b)
+                    if (w != "") {
+                        println("")
+                        draw(b)
+                        println((("Player " + w) + " wins!"))
+                        return
+                    }
+                    if is_full(b) {
+                        println("")
+                        draw(b)
+                        println("Draw.")
+                        return
+                    }
+                    if (current == "X") {
+                        current = "O"
+                    } else {
+                        current = "X"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,70 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>UI ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">UI (WASM)</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? UI</div>
+  <h1>UI (WASM)</h1>
+  <p>Bazic UI is a minimal JSON UI DSL rendered in the browser.</p>
+
+  <h2>Create a UI app</h2>
+  <pre><code>.\bin\bazic.exe ui init --dir .\my-ui
+.\bin\bazic.exe ui build --dir .\my-ui
+.\bin\bazic.exe ui dev --dir .\my-ui --port 8080
+</code></pre>
+
+  <h2>Render a layout</h2>
+  <pre><code>import "std";
+
+fn main(): void {
+    let nav = ui_nav_link("Home", "nav-home", true);
+    let body = ui_p("Hello from Bazic UI");
+    let root = ui_layout("Bazic UI", nav, body);
+    let _ = ui_render(root);
+}
+</code></pre>
+
+  <h2>State and events</h2>
+  <pre><code>let clicks = ui_state_int_get("clicks", 0);
+let ev = ui_event_type();
+if ev == "click" { ui_state_int_set("clicks", clicks + 1); }
+ui_event_clear();
+</code></pre>
+
+  <h2>Routing</h2>
+  <pre><code>let page = ui_route_get("home");
+if page == "settings" { /* render settings */ }
+</code></pre>
+
+  <p class="note">See <code class="inline">BAZIC_UI_GUIDE.md</code> for a full walkthrough.</p>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

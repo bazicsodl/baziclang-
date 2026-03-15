@@ -1,0 +1,67 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 3 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 3</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 3</div>
+  <h1>Day 3 ? If and else</h1>
+  <p>Goal: make choices in code.</p>
+
+  <h2>Comparisons</h2>
+  <pre><code>let a = 7;
+let b = 3;
+println(str(a > b));
+</code></pre>
+
+  <h2>If / else</h2>
+  <pre><code>fn main(): void {
+    let age = 16;
+    if age >= 18 {
+        println("adult");
+    } else {
+        println("minor");
+    }
+}
+</code></pre>
+
+  <h2>Boolean logic</h2>
+  <pre><code>let ok = true;
+let logged_in = false;
+if ok && !logged_in { println("Please sign in"); }
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Ask for a score variable and print ?pass? for 60+.
+  </div>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can branch based on conditions.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

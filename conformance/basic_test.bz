@@ -1,0 +1,462 @@
+enum Color { Red, Green, Blue }
+
+
+struct Box[T] {
+    value: T
+}
+
+
+struct Pair[A, B] {
+    left: A
+    right: B
+}
+
+
+struct Wrap[T] {
+    value: T
+}
+
+
+fn identity[T](v: T): T {
+    return v
+}
+
+
+fn test_generics_structs(): bool {
+    let b = Box[int] { value: 7 }
+    return (identity(b.value) == 7)
+}
+
+
+fn test_match_guard(): bool {
+    let c = Red
+    let v = match c { Red if true: 1, Red: 2, Green: 3, Blue: 4 }
+    return (v == 1)
+}
+
+
+fn test_string_ops(): bool {
+    return (contains("bazic", "zi") && ends_with("bazic", "ic"))
+}
+
+
+fn test_string_builtins(): bool {
+    let s = "  Bazic  "
+    let t = trim_space(s)
+    let u = to_lower(t)
+    let v = to_upper(u)
+    return (((t == "Bazic") && (u == "bazic")) && (v == "BAZIC"))
+}
+
+
+fn test_string_replace_repeat(): bool {
+    let s = replace("a-b-a", "-", "_")
+    let r = repeat("x", 3)
+    return ((s == "a_b_a") && (r == "xxx"))
+}
+
+
+fn test_str_builtin(): bool {
+    let a = str(42)
+    let b = str(true)
+    let c = str(3.5)
+    return (((a == "42") && (b == "true")) && (c != ""))
+}
+
+
+fn test_string_compare(): bool {
+    let a = "a"
+    let b = "b"
+    return (((a < b) && (a != b)) && (a == "a"))
+}
+
+
+fn test_string_predicates(): bool {
+    return ((contains("bazic", "zi") && starts_with("bazic", "ba")) && ends_with("bazic", "ic"))
+}
+
+
+fn test_len_and_repeat_zero(): bool {
+    let s = repeat("x", 0)
+    return (len(s) == 0)
+}
+
+
+fn test_string_concat(): bool {
+    let s = ("a" + "b")
+    return (s == "ab")
+}
+
+
+fn test_bool_eq(): bool {
+    return ((true == true) && (false != true))
+}
+
+
+fn test_string_eq(): bool {
+    return (("a" == "a") && ("a" != "b"))
+}
+
+
+fn test_repeat_negative(): bool {
+    let s = repeat("x", -2)
+    return (s == "")
+}
+
+
+fn test_len_unicode(): bool {
+    let s = "✓"
+    return (len(s) == 1)
+}
+
+
+fn test_result_struct_fields(): bool {
+    let r = ok(1, Error { message: "" })
+    return ((r.is_ok && (r.value == 1)) && (r.err.message == ""))
+}
+
+
+fn test_option_struct_fields(): bool {
+    let o = some(2)
+    return (o.is_some && (o.value == 2))
+}
+
+
+fn identity_int(x: int): int {
+    return x
+}
+
+
+fn test_generic_function_call(): bool {
+    return (identity_int(5) == 5)
+}
+
+
+fn test_scoped_let_shadow(): bool {
+    let x = 1
+    if true {
+        let x = 2
+        if (x != 2) {
+            return false
+        }
+    }
+    return (x == 1)
+}
+
+
+fn test_nested_while(): bool {
+    let i = 0
+    let j = 0
+    while (i < 2) {
+        j = 0
+        while (j < 2) {
+            j = (j + 1)
+        }
+        i = (i + 1)
+    }
+    return ((i == 2) && (j == 2))
+}
+
+
+fn test_struct_value_roundtrip(): bool {
+    let p = Person { name: "Zed" }
+    let q = Person { name: p.name }
+    return (q.name == "Zed")
+}
+
+
+fn test_math_precedence(): bool {
+    let v = (2 + (3 * 4))
+    return (v == 14)
+}
+
+
+fn test_paren_math(): bool {
+    let v = ((2 + 3) * 4)
+    return (v == 20)
+}
+
+
+fn test_bool_precedence(): bool {
+    let v = (true || (false && false))
+    return (v == true)
+}
+
+
+fn test_compare_ops(): bool {
+    return ((((3 < 4) && (4 > 3)) && (3 <= 3)) && (4 >= 4))
+}
+
+
+fn test_not_equal_ops(): bool {
+    return ((3 != 4) && !(3 != 3))
+}
+
+
+fn test_unary_minus(): bool {
+    let a = -5
+    let b = -3.5
+    return (((a == -5) && (b < -3.4)) && (b > -3.6))
+}
+
+
+fn test_logic_ops(): bool {
+    let a = true
+    let b = false
+    return ((a && !b) || (a && (b == false)))
+}
+
+
+fn test_match_stmt(): bool {
+    let c = Green
+    let v = 0
+    match c {
+        Red: {
+            v = 1
+        }
+        Green: {
+            v = 2
+        }
+        Blue: {
+            v = 3
+        }
+    }
+    return (v == 2)
+}
+
+
+fn test_result_or_ok(): bool {
+    let r = ok(7, Error { message: "" })
+    return (result_or(r, 1) == 7)
+}
+
+
+fn test_unwrap_or_some(): bool {
+    let o = some(9)
+    return (unwrap_or(o, 1) == 9)
+}
+
+
+fn test_int_math_ops(): bool {
+    let a = 10
+    let b = 3
+    return ((((((a + b) == 13) && ((a - b) == 7)) && ((a * b) == 30)) && ((a / b) == 3)) && ((a % b) == 1))
+}
+
+
+fn test_float_math_ops(): bool {
+    let a = 2.5
+    let b = 0.5
+    let c = (a + b)
+    return ((c > 2.9) && (c < 3.1))
+}
+
+
+fn test_bool_ops(): bool {
+    let a = true
+    let b = false
+    return (((a && !b) && (a || b)) && (a != b))
+}
+
+
+fn test_if_else(): bool {
+    let x = 5
+    if (x > 3) {
+        return true
+    } else {
+        return false
+    }
+}
+
+
+fn test_while_loop(): bool {
+    let i = 0
+    let sum = 0
+    while (i < 5) {
+        sum = (sum + i)
+        i = (i + 1)
+    }
+    return (sum == 10)
+}
+
+
+fn test_match_guard_fallback(): bool {
+    let c = Red
+    let v = match c { Red if false: 1, Red: 2, Green: 3, Blue: 4 }
+    return (v == 2)
+}
+
+
+fn test_nested_if(): bool {
+    let x = 4
+    if (x > 0) {
+        if (x > 3) {
+            return true
+        }
+    }
+    return false
+}
+
+
+fn test_global_let(): bool {
+    let x = 7
+    return (x == 7)
+}
+
+
+struct Person {
+    name: string
+}
+
+
+interface Named2 {
+    fn label(self: Person): string
+}
+
+
+impl Person: Named2
+
+
+struct Boxed[T] {
+    value: T
+}
+
+
+fn Person_label(self: Person): string {
+    return self.name
+}
+
+
+fn test_method_call(): bool {
+    let p = Person { name: "Ipeh" }
+    return (p.label() == "Ipeh")
+}
+
+
+fn test_nested_generics(): bool {
+    let inner = Box[int] { value: 7 }
+    let outer = Box[Box[int]] { value: inner }
+    return (outer.value.value == 7)
+}
+
+
+fn test_nested_generics_pair_wrap(): bool {
+    let p = Pair[int,string] { left: 3, right: "ok" }
+    let w = Wrap[Pair[int,string]] { value: p }
+    return ((w.value.left == 3) && (w.value.right == "ok"))
+}
+
+
+fn test_bounded_generic_struct(): bool {
+    let p = Person { name: "Zed" }
+    let b = Boxed[Person] { value: p }
+    return (b.value.name == "Zed")
+}
+
+
+let GLOBAL_X: int = 3
+
+
+fn test_global_let_value(): bool {
+    return (GLOBAL_X == 3)
+}
+
+
+let GLOBAL_ANY: any = 5
+
+
+let GLOBAL_ANY_STR: any = "ok"
+
+
+fn take_any(x: any): string {
+    return str(x)
+}
+
+
+fn test_any_str(): bool {
+    return (str(GLOBAL_ANY) == "5")
+}
+
+
+fn test_any_str_global(): bool {
+    return (str(GLOBAL_ANY_STR) == "ok")
+}
+
+
+fn test_any_eq(): bool {
+    let a: any = 3
+    let b: any = 3
+    let c: any = true
+    return ((a == b) && (a != c))
+}
+
+
+fn test_any_param(): bool {
+    return (take_any("ok") == "ok")
+}
+
+
+fn test_struct_field_access(): bool {
+    let p = Person { name: "A" }
+    return (p.name == "A")
+}
+
+
+fn test_enum_equality(): bool {
+    let a = Red
+    let b = Red
+    let c = Blue
+    return ((a == b) && (a != c))
+}
+
+
+fn test_match_expr_guard(): bool {
+    let c = Green
+    let v = match c { Green if true: 2, Green: 3, Red: 1, Blue: 4 }
+    return (v == 2)
+}
+
+
+fn test_match_expr_other_variant(): bool {
+    let c = Blue
+    let v = match c { Red: 1, Green: 2, Blue: 3 }
+    return (v == 3)
+}
+
+
+fn test_while_zero_iters(): bool {
+    let i = 0
+    while false {
+        i = (i + 1)
+    }
+    return (i == 0)
+}
+
+
+fn test_option_result(): bool {
+    let a = some(1)
+    let b = none(0)
+    let r1 = ok(7, Error { message: "" })
+    let r2 = err(0, Error { message: "nope" })
+    return ((((((a.is_some && (a.value == 1)) && !b.is_some) && (b.value == 0)) && r1.is_ok) && (r1.value == 7)) && !r2.is_ok)
+}
+
+
+fn test_unwrap_helpers(): bool {
+    let a = none(9)
+    let r = err(0, Error { message: "x" })
+    return ((unwrap_or(a, 9) == 9) && (result_or(r, 5) == 5))
+}
+
+
+fn test_match_expr(): bool {
+    let c = Blue
+    let v = match c { Red: 1, Green: 2, Blue: 3 }
+    return (v == 3)
+}
+
+
+fn test_assert_helpers(): void {
+    assert(true)
+    assert_msg(true, "ok")
+}

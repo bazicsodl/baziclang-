@@ -1,0 +1,73 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 2 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 2</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 2</div>
+  <h1>Day 2 ? Numbers and variables</h1>
+  <p>Goal: store values in variables and do basic math.</p>
+
+  <h2>Numbers</h2>
+  <pre><code>fn main(): void {
+    let a: int = 10;
+    let b: int = 3;
+    let c = a + b;
+    println(str(c));
+}
+</code></pre>
+
+  <h2>Types you will use today</h2>
+  <ul class="list">
+    <li><code class="inline">int</code> for whole numbers.</li>
+    <li><code class="inline">float</code> for decimals.</li>
+    <li><code class="inline">string</code> for text.</li>
+  </ul>
+
+  <h2>Inferred types</h2>
+  <pre><code>let name = "Sam";   // inferred as string
+let score = 98;     // inferred as int
+let price = 3.14;   // inferred as float
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Write a program that calculates the total price of 3 items.
+  </div>
+
+  <h2>Concatenating strings</h2>
+  <pre><code>fn main(): void {
+    let who = "Ava";
+    println("Hello, " + who);
+}
+</code></pre>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can create variables and use math and strings.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

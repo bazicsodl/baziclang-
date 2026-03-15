@@ -1,0 +1,8 @@
+fn io_read_line(): Result[string,Error] {
+    return __std_read_line()
+}
+
+
+fn io_read_all(): Result[string,Error] {
+    return __std_read_all()
+}

@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_time(): string {
+    let body = section("Stdlib: time", p("Content coming soon."))
+    return page_layout("Stdlib: time", "stdlib", body)
+}

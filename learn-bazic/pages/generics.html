@@ -1,0 +1,51 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Generics ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Generics</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Generics</div>
+  <h1>Generics</h1>
+  <p>Generics let you write reusable code that works with many types.</p>
+
+  <h2>Generic struct</h2>
+  <pre><code>struct Box[T] { value: T; }
+let i = Box[int]{ value: 1 };
+let s = Box[string]{ value: "hi" };
+</code></pre>
+
+  <h2>Generic function</h2>
+  <pre><code>fn identity[T](x: T): T { return x; }
+</code></pre>
+
+  <h2>Generic bounds</h2>
+  <pre><code>interface Named { fn name(): string; }
+fn greet[T: Named](x: T): string { return "Hi " + x.name(); }
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

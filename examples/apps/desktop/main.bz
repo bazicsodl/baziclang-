@@ -1,0 +1,15 @@
+import "std"
+
+
+fn main(): void {
+    let html = "<html><body style='font-family:Segoe UI;'><h1>Bazic Desktop MVP</h1><p>Opened via std.desktop_open_url</p></body></html>"
+    let res = fs_write_file("desktop_app.html", html)
+    if !res.is_ok {
+        println(res.err.message)
+        return
+    }
+    let open = desktop_open_url("desktop_app.html")
+    if !open.is_ok {
+        println(open.err.message)
+    }
+}

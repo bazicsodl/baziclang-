@@ -1,0 +1,13 @@
+fn path_basename(path: string): string {
+    return __std_path_basename(path)
+}
+
+
+fn path_dirname(path: string): string {
+    return __std_path_dirname(path)
+}
+
+
+fn path_join(a: string, b: string): string {
+    return __std_path_join(a, b)
+}

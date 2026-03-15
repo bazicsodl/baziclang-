@@ -1,0 +1,57 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib fs ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib fs</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? fs</div>
+  <h1>std/fs</h1>
+  <p>Read, write, and manage files.</p>
+
+  <h2>Read a file</h2>
+  <pre><code>let res = fs_read_file("notes.txt");
+if res.is_ok { println(res.value); }
+</code></pre>
+
+  <h2>Write a file</h2>
+  <pre><code>let ok = fs_write_file("notes.txt", "hello");
+if !ok.is_ok { println(ok.err.message); }
+</code></pre>
+
+  <h2>List a directory</h2>
+  <pre><code>let res = fs_list_dir(".");
+if res.is_ok { println(res.value); }
+</code></pre>
+
+  <h2>Safety</h2>
+  <p>Never write paths from untrusted input without validation.</p>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

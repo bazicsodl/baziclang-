@@ -1,0 +1,206 @@
+import "std"
+
+
+enum Phase { Cpu, Mem, Io, Done }
+
+
+struct Task {
+    name: string
+    phase: Phase
+}
+
+
+struct Box[T] {
+    value: T
+}
+
+
+interface Named {
+    fn label(self: Task): string
+}
+
+
+impl Task: Named
+
+
+fn Task_label(self: Task): string {
+    return ((self.name + ":") + phase_name(self.phase))
+}
+
+
+struct Report {
+    started_at: string
+    finished_at: string
+    cpu_hash: string
+    mem_bytes: int
+    io_bytes: int
+    http_status: int
+    db_rows: int
+    notes: string
+}
+
+
+fn env_int(key: string, fallback: int): int {
+    let v = os_getenv(key)
+    if v.is_ok {
+        let p = parse_int(v.value)
+        if p.is_ok {
+            return p.value
+        }
+    }
+    return fallback
+}
+
+
+fn make_payload_kb(kb: int): string {
+    let chunk = repeat("x", 1024)
+    let sb = sb_new()
+    let i = 0
+    while (i < kb) {
+        sb = sb_append(sb, chunk)
+        i = (i + 1)
+    }
+    return sb_string(sb)
+}
+
+
+fn build_json_items(n: int): string {
+    let sb = sb_new()
+    sb = sb_append(sb, "[")
+    let i = 0
+    while (i < n) {
+        let v = ("item-" + str(i))
+        let obj = (((("{\"id\":" + str(i)) + ",\"v\":\"") + v) + "\"}")
+        if (i > 0) {
+            sb = sb_append(sb, ",")
+        }
+        sb = sb_append(sb, obj)
+        i = (i + 1)
+    }
+    sb = sb_append(sb, "]")
+    return sb_string(sb)
+}
+
+
+fn cpu_burn(iterations: int, seed: string): string {
+    let s = seed
+    let i = 0
+    while (i < iterations) {
+        s = crypto_sha256_hex(((s + ":") + str(i)))
+        i = (i + 1)
+    }
+    return s
+}
+
+
+fn do_db(db_path: string, rows: int): int {
+    let _ = db_exec(db_path, "create table if not exists items (id integer, name text, val integer);")
+    let i = 0
+    while (i < rows) {
+        let sql = (((((("insert into items (id, name, val) values (" + str(i)) + ", 'n") + str(i)) + "', ") + str((i * i))) + ");")
+        let _ = db_exec(db_path, sql)
+        i = (i + 1)
+    }
+    let q = db_query(db_path, "select count(*) as c from items;")
+    if q.is_ok {
+        println(("DB count raw: " + q.value))
+    }
+    return rows
+}
+
+
+fn phase_name(p: Phase): string {
+    return match p { Cpu: "cpu", Mem: "mem", Io: "io", Done: "done" }
+}
+
+
+fn main(): void {
+    let start = time_now_rfc3339()
+    println("Baziclang Heavy Script (CPU + MEM + IO + FEATURE)")
+    println(("Started: " + start))
+    let cpu_iters = env_int("BAZIC_CPU_ITERS", 4000)
+    let mem_kb = env_int("BAZIC_MEM_KB", 512)
+    let json_items = env_int("BAZIC_JSON_ITEMS", 2000)
+    let db_rows = env_int("BAZIC_DB_ROWS", 200)
+    let file_kb = env_int("BAZIC_FILE_KB", 1024)
+    let t = Task { name: "heavy-run", phase: Cpu }
+    println(("Task: " + t.label()))
+    let seed = ("bazic:" + time_now_rfc3339())
+    let cpu_hash = cpu_burn(cpu_iters, seed)
+    println(("CPU hash: " + cpu_hash))
+    t = Task { name: "heavy-run", phase: Mem }
+    println(("Task: " + t.label()))
+    let mem_payload = make_payload_kb(mem_kb)
+    let mem_bytes = len(mem_payload)
+    println(("Mem payload bytes: " + str(mem_bytes)))
+    let json_payload = build_json_items(json_items)
+    let json_valid = json_validate(json_payload)
+    println(("JSON valid: " + str(json_valid)))
+    let json_min = json_minify(json_payload)
+    if json_min.is_ok {
+        println(("JSON min bytes: " + str(len(json_min.value))))
+    }
+    let json_pre = json_pretty(json_payload)
+    if json_pre.is_ok {
+        println(("JSON pretty bytes: " + str(len(json_pre.value))))
+    }
+    t = Task { name: "heavy-run", phase: Io }
+    println(("Task: " + t.label()))
+    let temp = os_temp_dir()
+    let base_dir = "."
+    if temp.is_ok {
+        base_dir = temp.value
+    }
+    let out_dir = path_join(base_dir, "bazic_heavy")
+    let _ = fs_mkdir_all(out_dir)
+    let out_path = path_join(out_dir, "payload.txt")
+    let file_payload = make_payload_kb(file_kb)
+    let w = fs_write_file(out_path, file_payload)
+    if w.is_ok {
+        println(("Wrote file: " + out_path))
+    } else {
+        println(("File write failed: " + w.err.message))
+    }
+    let r = fs_read_file(out_path)
+    let io_bytes = 0
+    if r.is_ok {
+        io_bytes = len(r.value)
+    }
+    println(("Read bytes: " + str(io_bytes)))
+    let enc = base64_encode(mem_payload)
+    let dec = base64_decode(enc)
+    if dec.is_ok {
+        println(("Base64 roundtrip ok: " + str((len(dec.value) == len(mem_payload)))))
+    }
+    let db_path = path_join(out_dir, "heavy.db")
+    let actual_rows = do_db(db_path, db_rows)
+    let status = http_get_status("https://example.com")
+    let http_status = -1
+    if status.is_ok {
+        http_status = status.value
+    }
+    println(("HTTP status: " + str(http_status)))
+    let dir_list = fs_list_dir(out_dir)
+    if dir_list.is_ok {
+        println(("Dir list:\n" + dir_list.value))
+    }
+    let ui_flag = os_getenv("BAZIC_UI")
+    if ui_flag.is_ok {
+        let title = ui_h1("Bazic Heavy")
+        let body = ui_p(((((("CPU: " + str(cpu_iters)) + ", MEM_KB: ") + str(mem_kb)) + ", FILE_KB: ") + str(file_kb)))
+        let btn = ui_button("OK", "ok", "ghost")
+        let content = ui_children_three(title, body, btn)
+        let root = ui_app_root(ui_component("App", "{}", content))
+        let _ = ui_render(root)
+    }
+    t = Task { name: "heavy-run", phase: Done }
+    println(("Task: " + t.label()))
+    let done = time_now_rfc3339()
+    let rep = Report { cpu_hash: cpu_hash, db_rows: actual_rows, finished_at: done, http_status: http_status, io_bytes: io_bytes, mem_bytes: mem_bytes, notes: "ok", started_at: start }
+    let box = Box[Report] { value: rep }
+    let report_json = (((((((((((((("{\"started\":\"" + box.value.started_at) + "\",\"finished\":\"") + box.value.finished_at) + "\",\"cpu_hash\":\"") + box.value.cpu_hash) + "\",\"mem_bytes\":") + str(box.value.mem_bytes)) + ",\"io_bytes\":") + str(box.value.io_bytes)) + ",\"http_status\":") + str(box.value.http_status)) + ",\"db_rows\":") + str(box.value.db_rows)) + "}")
+    let report_path = path_join(out_dir, "report.json")
+    let _ = fs_write_file(report_path, report_json)
+    println(("Report: " + report_path))
+    println(("Finished: " + done))
+}

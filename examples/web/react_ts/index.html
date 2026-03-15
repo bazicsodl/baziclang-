@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bazic UI (React + TS)</title>
+    <link rel="stylesheet" href="../theme.css" />
+    <link rel="stylesheet" href="../style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <div class="badge">WASM</div>
+        <h1>Bazic UI (React + TS)</h1>
+        <p>React + TypeScript adapter rendering the Bazic UI tree.</p>
+      </header>
+      <section class="panel">
+        <div class="row">
+          <button id="run">Run Bazic</button>
+          <button id="clear" class="ghost">Clear</button>
+          <span class="status" id="status">idle</span>
+        </div>
+        <pre id="output"></pre>
+      </section>
+      <section class="panel">
+        <h2>Bazic UI</h2>
+        <div id="ui" class="ui-root"></div>
+      </section>
+    </main>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="./react_adapter.js"></script>
+    <script src="../wasm_exec.js"></script>
+    <script src="../app.js"></script>
+  </body>
+</html>

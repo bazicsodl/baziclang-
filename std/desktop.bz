@@ -1,0 +1,3 @@
+fn desktop_open_url(url: string): Result[bool,Error] {
+    return __std_open_url(url)
+}

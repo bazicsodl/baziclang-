@@ -1,0 +1,46 @@
+fn jwt_b64url(s: string): string {
+    let b = base64_encode(s)
+    let x = replace(b, "+", "-")
+    x = replace(x, "/", "_")
+    x = replace(x, "=", "")
+    return x
+}
+
+
+fn jwt_b64url_decode(s: string): Result[string,Error] {
+    let x = s
+    x = replace(x, "-", "+")
+    x = replace(x, "_", "/")
+    let pad = (len(x) % 4)
+    if (pad == 2) {
+        x = (x + "==")
+    }
+    if (pad == 3) {
+        x = (x + "=")
+    }
+    if (pad == 1) {
+        return err("", Error { message: "invalid base64" })
+    }
+    return base64_decode(x)
+}
+
+
+fn jwt_sign_hs256(header_json: string, payload_json: string, secret: string): Result[string,Error] {
+    let head = jwt_b64url(header_json)
+    let payload = jwt_b64url(payload_json)
+    let sig = crypto_hmac_sha256_hex(((head + ".") + payload), secret)
+    let token = ((((head + ".") + payload) + ".") + jwt_b64url(sig))
+    return ok(token, Error { message: "" })
+}
+
+
+fn jwt_verify_hs256(token: string, secret: string): Result[bool,Error] {
+    let _ = token
+    let _ = secret
+    return ok(false, Error { message: "" })
+}
+
+
+fn csrf_token(): Result[string,Error] {
+    return crypto_random_hex(32)
+}

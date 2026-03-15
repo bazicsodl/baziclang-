@@ -1,0 +1,11 @@
+{
+  "name": "bazic-ui-react-ts",
+  "private": true,
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  },
+  "scripts": {
+    "build:ui": "esbuild src/react_adapter.ts --bundle --format=iife --outfile=react_adapter.js",
+    "watch:ui": "esbuild src/react_adapter.ts --bundle --format=iife --outfile=react_adapter.js --watch"
+  }
+}

@@ -1,0 +1,23 @@
+fn crypto_sha256_hex(s: string): string {
+    return __std_sha256_hex(s)
+}
+
+
+fn crypto_random_hex(n: int): Result[string,Error] {
+    return __std_random_hex(n)
+}
+
+
+fn crypto_bcrypt_hash(password: string, cost: int): Result[string,Error] {
+    return __std_bcrypt_hash(password, cost)
+}
+
+
+fn crypto_bcrypt_verify(password: string, hash: string): Result[bool,Error] {
+    return __std_bcrypt_verify(password, hash)
+}
+
+
+fn crypto_hmac_sha256_hex(message: string, secret: string): string {
+    return crypto_sha256_hex(((message + ":") + secret))
+}

@@ -1,0 +1,21 @@
+name: bench-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "Backend to gate (go or llvm)"
+        required: true
+        default: "go"
+
+jobs:
+  bench-gate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Bench Gate
+        shell: pwsh
+        run: .\scripts\bench_gate.ps1 -Backend ${{ inputs.backend }}

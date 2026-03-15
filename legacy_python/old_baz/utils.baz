@@ -1,0 +1,7 @@
+export fn clear() {
+    print("\n---\n")
+}
+
+export fn show_item(i, item) {
+    print("[" + i + "] " + item.text + " (done=" + item.done + ")")
+}

@@ -1,0 +1,19 @@
+import "std"
+
+
+fn json_response(status: int, body: string): string {
+    let status_line = (("HTTP/1.1 " + str(status)) + " OK\r\n")
+    let headers = (("Content-Type: application/json\r\nContent-Length: " + str(len(body))) + "\r\n\r\n")
+    return ((status_line + headers) + body)
+}
+
+
+fn route(path: string): string {
+    if (path == "/") {
+        return json_response(200, "{\"service\":\"bazic\"}")
+    }
+    if (path == "/health") {
+        return json_response(200, "{\"status\":\"ok\"}")
+    }
+    return json_response(404, "{\"error\":\"not found\"}")
+}

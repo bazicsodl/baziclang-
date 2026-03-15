@@ -1,0 +1,59 @@
+fn validate_required(s: string, field: string): Result[bool,Error] {
+    if (trim_space(s) == "") {
+        return err(false, Error { message: (field + " is required") })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_min_len(s: string, min: int, field: string): Result[bool,Error] {
+    if (len(s) < min) {
+        return err(false, Error { message: ((field + " must be at least ") + str(min)) })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_max_len(s: string, max: int, field: string): Result[bool,Error] {
+    if (len(s) > max) {
+        return err(false, Error { message: ((field + " must be at most ") + str(max)) })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_email(s: string, field: string): Result[bool,Error] {
+    if (!contains(s, "@") || !contains(s, ".")) {
+        return err(false, Error { message: (field + " is not a valid email") })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_int_range(v: int, min: int, max: int, field: string): Result[bool,Error] {
+    if ((v < min) || (v > max)) {
+        return err(false, Error { message: (field + " out of range") })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_float_range(v: float, min: float, max: float, field: string): Result[bool,Error] {
+    if ((v < min) || (v > max)) {
+        return err(false, Error { message: (field + " out of range") })
+    }
+    return ok(true, Error { message: "" })
+}
+
+
+fn validate_enum(v: string, allowed_csv: string): Result[bool,Error] {
+    if (allowed_csv == "") {
+        return ok(true, Error { message: "" })
+    }
+    let hay = (("," + to_lower(allowed_csv)) + ",")
+    let needle = (("," + to_lower(v)) + ",")
+    if !contains(hay, needle) {
+        return err(false, Error { message: "invalid enum" })
+    }
+    return ok(true, Error { message: "" })
+}

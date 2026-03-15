@@ -1,0 +1,82 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Tooling ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Tooling</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Tooling</div>
+  <h1>Tooling</h1>
+  <p>Bazic includes a full toolchain for building, testing, and shipping.</p>
+
+  <h2>Run and build</h2>
+  <pre><code>.\bin\bazic.exe run
+.\bin\bazic.exe build -o .\bin\app.exe
+</code></pre>
+
+  <h2>Check and format</h2>
+  <pre><code>.\bin\bazic.exe check .
+.\bin\bazic.exe fmt .
+.\bin\bazic.exe fmt --check .
+</code></pre>
+
+  <h2>Testing and linting</h2>
+  <pre><code>.\bin\bazic.exe test .
+.\bin\bazic.exe test --filter match .
+.\bin\bazic.exe test --json .
+.\bin\bazic.exe lint .
+</code></pre>
+
+  <h2>Package manager</h2>
+  <pre><code>.\bin\bazic.exe pkg init myapp
+.\bin\bazic.exe pkg add stdutil .\examples\packages\stdutil
+.\bin\bazic.exe pkg sync
+.\bin\bazic.exe pkg verify
+</code></pre>
+
+  <h2>Backends</h2>
+  <ul class="list">
+    <li>LLVM backend for native builds. Requires <code class="inline">clang</code>.</li>
+    <li>Go backend for WASM and cross-platform builds.</li>
+  </ul>
+
+  <h2>UI helpers</h2>
+  <pre><code>.\bin\bazic.exe ui init --dir .\my-ui
+.\bin\bazic.exe ui dev --dir .\my-ui --port 8080
+</code></pre>
+
+  <h2>Helpful environment variables</h2>
+  <ul class="list">
+    <li><code class="inline">BAZIC_BACKEND=go</code> to default to Go backend.</li>
+    <li><code class="inline">BAZIC_CLANG</code> to point to clang.</li>
+    <li><code class="inline">BAZIC_TARGET=wasm</code> for WASM builds.</li>
+  </ul>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

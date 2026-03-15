@@ -1,0 +1,60 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 5 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 5</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 5</div>
+  <h1>Day 5 ? Functions</h1>
+  <p>Goal: put logic into reusable blocks.</p>
+
+  <h2>Simple function</h2>
+  <pre><code>fn square(x: int): int {
+    return x * x;
+}
+
+fn main(): void {
+    println(str(square(5)));
+}
+</code></pre>
+
+  <h2>Multiple parameters</h2>
+  <pre><code>fn greet(name: string, age: int): string {
+    return "Hello " + name + " (" + str(age) + ")";
+}
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Write a function that checks if a number is even.
+  </div>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can define and call your own functions.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

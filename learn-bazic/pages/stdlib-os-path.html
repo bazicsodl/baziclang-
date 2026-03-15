@@ -1,0 +1,50 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib os + path ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib os + path</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? os + path</div>
+  <h1>std/os and std/path</h1>
+  <p>Environment, cwd, and path helpers.</p>
+
+  <h2>Env and cwd</h2>
+  <pre><code>let cwd = os_cwd();
+let home = os_home_dir();
+</code></pre>
+
+  <h2>Paths</h2>
+  <pre><code>let base = path_basename("C:\Users\Ipeh\file.txt");
+let dir = path_dirname("/home/user/file.txt");
+let full = path_join(dir, "next.txt");
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

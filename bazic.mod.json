@@ -1,0 +1,7 @@
+{
+  "name": "baziclang",
+  "deps": {
+    "std": "./std",
+    "stdutil": "./examples/packages/stdutil"
+  }
+}

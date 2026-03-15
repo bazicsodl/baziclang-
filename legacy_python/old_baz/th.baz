@@ -1,0 +1,81 @@
+let board = [" ", " ", " ", " ", " ", " ", " ", " ", " "]
+
+fn showBoard() {
+    print(board[0] + "|" + board[1] + "|" + board[2])
+    print("-+-+-")
+    print(board[3] + "|" + board[4] + "|" + board[5])
+    print("-+-+-")
+    print(board[6] + "|" + board[7] + "|" + board[8])
+}
+
+fn checkWin(p) {
+    let wins = [
+        [0,1,2], [3,4,5], [6,7,8],
+        [0,3,6], [1,4,7], [2,5,8],
+        [0,4,8], [2,4,6]
+    ]
+
+    let i = 0
+    while(i < 8) {
+        let w = wins[i]
+        if(board[w[0]] == p && board[w[1]] == p && board[w[2]] == p) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn isFull() {
+    let i = 0
+    while(i < 9) {
+        if(board[i] == " ") {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn play() {
+    let player = "X"
+
+    while(true) {
+        showBoard()
+        print("Player " + player + ", choose position (0-8): ")
+        let pos = input("")
+        pos = pos + 0   // force numeric
+
+        if(pos < 0 || pos > 8) {
+            print("Invalid position")
+            continue
+        }
+
+        if(board[pos] != " ") {
+            print("Spot taken!")
+            continue
+        }
+
+        board[pos] = player
+
+        if(checkWin(player)) {
+            showBoard()
+            print("Player " + player + " wins!")
+            return null
+        }
+
+        if(isFull()) {
+            showBoard()
+            print("It's a draw!")
+            return null
+        }
+
+        if(player == "X") {
+            player = "O"
+        } else {
+            player = "X"
+        }
+    }
+}
+
+play()

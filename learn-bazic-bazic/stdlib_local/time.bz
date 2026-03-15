@@ -1,0 +1,18 @@
+fn time_unix_millis(): int {
+    return __std_unix_millis()
+}
+
+
+fn time_sleep_ms(ms: int): void {
+    __std_sleep_ms(ms)
+}
+
+
+fn time_now_rfc3339(): string {
+    return __std_now_rfc3339()
+}
+
+
+fn time_add_days(rfc3339: string, days: int): Result[string,Error] {
+    return __std_time_add_days(rfc3339, days)
+}

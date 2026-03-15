@@ -1,0 +1,70 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 6 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 6</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 6</div>
+  <h1>Day 6 ? Strings and files</h1>
+  <p>Goal: read and write text from disk.</p>
+
+  <h2>Read a file</h2>
+  <pre><code>import "std";
+
+fn main(): void {
+    let res = fs_read_file("notes.txt");
+    if res.is_ok {
+        println(res.value);
+    } else {
+        println(res.err.message);
+    }
+}
+</code></pre>
+
+  <h2>Write a file</h2>
+  <pre><code>import "std";
+
+fn main(): void {
+    let ok = fs_write_file("notes.txt", "hello from bazic");
+    if ok.is_ok {
+        println("saved");
+    } else {
+        println(ok.err.message);
+    }
+}
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Save your name and then read it back.
+  </div>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can safely handle errors with <code class="inline">Result</code>.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

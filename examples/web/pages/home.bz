@@ -1,0 +1,16 @@
+import "std"
+
+
+fn page_home(clicks: int, name: string): string {
+    let greet = "Welcome to Bazic UI."
+    if (name != "") {
+        greet = (("Welcome, " + name) + ".")
+    }
+    let list_title = ui_element("h3", ui_props("", "section-title"), ui_children_one(ui_text("Items")))
+    let item1 = ui_element("div", ui_props_key("", "item", "i1"), ui_children_one(ui_text("One")))
+    let item2 = ui_element("div", ui_props_key("", "item", "i2"), ui_children_one(ui_text("Two")))
+    let item3 = ui_element("div", ui_props_key("", "item", "i3"), ui_children_one(ui_text("Three")))
+    let list = ui_element("div", ui_props_key("", "list", "list"), ui_children_three(item1, item2, item3))
+    let body = ui_element("div", ui_props("", "stack"), ui_children_three(ui_p(greet), list_title, list))
+    return ui_section("Home", body)
+}

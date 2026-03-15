@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Learn Bazic - from zero to real programs</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">bz</div>
+      <div>
+        <div class="title">Learn Bazic</div>
+        <div class="tag">Simple. Safe. Fast.</div>
+      </div>
+    </div>
+    <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+    <nav class="nav" id="nav">
+      <a href="index.html">Home</a>
+      <a href="pages/start.html">Start Here</a>
+      <a href="pages/track.html">Learning Track</a>
+      <a href="pages/reference.html">Reference</a>
+      <a href="pages/stdlib.html">Stdlib</a>
+      <a href="pages/web.html">Web</a>
+      <a href="pages/ui.html">UI</a>
+      <a href="pages/tooling.html">Tooling</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <div class="kicker">Build real apps</div>
+        <h1>Learn Bazic from zero and start shipping in days.</h1>
+        <p>
+          Bazic is a compiled language that keeps syntax small, mistakes loud, and runtime fast.
+          This site teaches everything, step by step, for people who have never coded before.
+        </p>
+        <div class="hero-actions">
+          <a class="btn" href="pages/start.html">Start Day 1</a>
+          <a class="btn ghost" href="pages/track.html">Full Learning Track</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="kicker">Your first program</div>
+        <pre><code>fn main(): void {
+    println("Hello, Bazic!");
+}
+</code></pre>
+        <p class="note">If you can read that, you can write it.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What you can build with Bazic</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Command line tools</h3>
+          <p>Parse files, automate tasks, and ship fast binaries.</p>
+        </div>
+        <div class="card">
+          <h3>Web servers</h3>
+          <p>Use the built-in HTTP stack to build APIs and web services.</p>
+        </div>
+        <div class="card">
+          <h3>Web apps (WASM)</h3>
+          <p>Build UI apps with Bazic UI and run them in the browser.</p>
+        </div>
+        <div class="card">
+          <h3>Desktop helpers</h3>
+          <p>Launch URLs, handle files, and build small desktop utilities.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Start in 7 days</h2>
+      <div class="grid">
+        <a class="tile" href="pages/day1.html">
+          <strong>Day 1</strong>
+          <p class="note">Print words and run a program.</p>
+        </a>
+        <a class="tile" href="pages/day2.html">
+          <strong>Day 2</strong>
+          <p class="note">Numbers, math, and variables.</p>
+        </a>
+        <a class="tile" href="pages/day3.html">
+          <strong>Day 3</strong>
+          <p class="note">If, else, and choices.</p>
+        </a>
+        <a class="tile" href="pages/day4.html">
+          <strong>Day 4</strong>
+          <p class="note">Loops and repeating work.</p>
+        </a>
+        <a class="tile" href="pages/day5.html">
+          <strong>Day 5</strong>
+          <p class="note">Functions and reusable code.</p>
+        </a>
+        <a class="tile" href="pages/day6.html">
+          <strong>Day 6</strong>
+          <p class="note">Strings, files, and tools.</p>
+        </a>
+        <a class="tile" href="pages/day7.html">
+          <strong>Day 7</strong>
+          <p class="note">Build a mini app.</p>
+        </a>
+        <a class="tile" href="pages/track.html">
+          <strong>Full Track</strong>
+          <p class="note">Go deeper with the full syllabus.</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>How Bazic feels</h2>
+      <div class="section-split">
+        <div class="panel">
+          <h3>Simple syntax</h3>
+          <p>Few keywords. Clear punctuation. Easy to read at a glance.</p>
+        </div>
+        <div class="panel">
+          <h3>Static types</h3>
+          <p>Catch mistakes early with explicit types and local inference.</p>
+        </div>
+        <div class="panel">
+          <h3>No hidden nulls</h3>
+          <p>Use <code class="inline">Option</code> and <code class="inline">Result</code> instead of <code class="inline">nil</code>.</p>
+        </div>
+        <div class="panel">
+          <h3>Fast builds</h3>
+          <p>AOT compilation to native binaries or WASM.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Quick install</h2>
+      <div class="section-split">
+        <div class="card">
+          <h3>Windows</h3>
+          <pre><code>cd C:\Users\Ipeh\Documents\baziclang
+.\tools\install.ps1
+.\bin\bazic.exe version
+</code></pre>
+        </div>
+        <div class="card">
+          <h3>macOS / Linux</h3>
+          <pre><code>cd ~/baziclang
+./tools/install.sh
+./bin/bazic version
+</code></pre>
+        </div>
+      </div>
+      <p class="note">If you already have the compiler, skip install and jump straight to the lessons.</p>
+    </section>
+
+    <section class="section">
+      <h2>Language snapshot</h2>
+      <div class="section-split">
+        <div class="card">
+          <h3>Structs + functions</h3>
+          <pre><code>struct User { name: string; age: int; }
+
+fn greet(u: User): string {
+    return "Hello " + u.name;
+}
+</code></pre>
+        </div>
+        <div class="card">
+          <h3>Enums + match</h3>
+          <pre><code>enum Role { Admin, Member, Guest }
+
+fn badge(r: Role): string {
+    return match r {
+        Admin: "ADMIN",
+        Member: "MEMBER",
+        Guest: "GUEST",
+    };
+}
+</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Deep dive sections</h2>
+      <div class="toc">
+        <a href="pages/syntax.html">Syntax map</a>
+        <a href="pages/types.html">Types</a>
+        <a href="pages/control.html">Control flow</a>
+        <a href="pages/functions.html">Functions</a>
+        <a href="pages/structs.html">Structs</a>
+        <a href="pages/enums.html">Enums</a>
+        <a href="pages/match.html">Match</a>
+        <a href="pages/interfaces.html">Interfaces</a>
+        <a href="pages/generics.html">Generics</a>
+        <a href="pages/errors.html">Errors</a>
+        <a href="pages/stdlib.html">Stdlib</a>
+        <a href="pages/packages.html">Packages</a>
+        <a href="pages/tooling.html">Tooling</a>
+        <a href="pages/web.html">Web stack</a>
+        <a href="pages/ui.html">UI (WASM)</a>
+        <a href="pages/projects.html">Projects</a>
+        <a href="pages/safety.html">Safety</a>
+        <a href="pages/testing.html">Testing</a>
+        <a href="pages/glossary.html">Glossary</a>
+      </div>
+    </section>
+    <section class="section">
+      <h2>Stdlib modules</h2>
+      <div class="toc">
+        <a href="pages/stdlib-io.html">std/io</a>
+        <a href="pages/stdlib-fs.html">std/fs</a>
+        <a href="pages/stdlib-time.html">std/time</a>
+        <a href="pages/stdlib-json.html">std/json</a>
+        <a href="pages/stdlib-http.html">std/http</a>
+        <a href="pages/stdlib-db.html">std/db</a>
+        <a href="pages/stdlib-crypto.html">std/crypto</a>
+        <a href="pages/stdlib-auth.html">std/auth + jwt + session</a>
+        <a href="pages/stdlib-collections.html">std/collections</a>
+        <a href="pages/stdlib-os-path.html">std/os + std/path</a>
+        <a href="pages/stdlib-validate.html">std/validate</a>
+        <a href="pages/stdlib-sql.html">std/sql</a>
+        <a href="pages/stdlib-web.html">std/web</a>
+        <a href="pages/stdlib-ui.html">std/ui</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Made for learning Bazic. Zero fluff. Real programs.
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

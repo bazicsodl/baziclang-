@@ -1,0 +1,46 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib collections ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib collections</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? collections</div>
+  <h1>std/collections</h1>
+  <p>StringBuilder for efficient string building.</p>
+
+  <h2>Build a string</h2>
+  <pre><code>let sb = sb_new();
+let sb2 = sb_append(sb, "Hello");
+let sb3 = sb_append_line(sb2, " world");
+println(sb_string(sb3));
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

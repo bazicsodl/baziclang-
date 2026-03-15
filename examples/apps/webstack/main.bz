@@ -1,0 +1,34 @@
+import "std"
+
+
+fn main(): void {
+    let res = http_serve_app(":8080")
+    if !res.is_ok {
+        println(res.err.message)
+    }
+}
+
+
+fn get_root(req: ServerRequest): ServerResponse {
+    return http_text(200, "bazic webstack up")
+}
+
+
+fn get_health(req: ServerRequest): ServerResponse {
+    return http_json(200, "{\"status\":\"ok\"}")
+}
+
+
+fn get_posts_p_id(req: ServerRequest): ServerResponse {
+    let id = http_params_get(req.params, "id")
+    let body = (("{\"id\":\"" + id) + "\",\"message\":\"ok\"}")
+    return http_json(200, body)
+}
+
+
+fn post_posts(req: ServerRequest): ServerResponse {
+    if !json_validate(req.body) {
+        return http_json(400, "{\"error\":\"invalid json\"}")
+    }
+    return http_json(201, req.body)
+}

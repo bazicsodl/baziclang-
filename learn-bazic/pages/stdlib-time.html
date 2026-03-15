@@ -1,0 +1,53 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib time ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib time</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? time</div>
+  <h1>std/time</h1>
+  <p>Time helpers and sleep.</p>
+
+  <h2>Now</h2>
+  <pre><code>println(str(time_unix_millis()));
+println(time_now_rfc3339());
+</code></pre>
+
+  <h2>Add days</h2>
+  <pre><code>let res = time_add_days(time_now_rfc3339(), 7);
+if res.is_ok { println(res.value); }
+</code></pre>
+
+  <h2>Sleep</h2>
+  <pre><code>time_sleep_ms(500);
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

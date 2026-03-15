@@ -1,0 +1,69 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Types ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Types</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Types</div>
+  <h1>Types</h1>
+  <p>Bazic is statically typed. Types help you catch mistakes early.</p>
+
+  <h2>Built-in types</h2>
+  <ul class="list">
+    <li><code class="inline">int</code> ? whole numbers</li>
+    <li><code class="inline">float</code> ? decimals</li>
+    <li><code class="inline">bool</code> ? true or false</li>
+    <li><code class="inline">string</code> ? text</li>
+    <li><code class="inline">void</code> ? no value (only for function returns)</li>
+    <li><code class="inline">any</code> ? for interop only</li>
+  </ul>
+
+  <h2>Structs</h2>
+  <pre><code>struct Point { x: int; y: int; }
+let p = Point{ x: 3, y: 4 };
+</code></pre>
+
+  <h2>Enums</h2>
+  <pre><code>enum Status { Ok, Bad, Unknown }
+let s = Status.Ok;
+</code></pre>
+
+  <h2>Interfaces</h2>
+  <pre><code>interface Named { fn name(): string; }
+impl User: Named;
+</code></pre>
+
+  <h2>Generics</h2>
+  <pre><code>struct Box[T] { value: T; }
+fn identity[T](x: T): T { return x; }
+</code></pre>
+
+  <h2>No nil</h2>
+  <p>Bazic does not allow <code class="inline">nil</code>. Use <code class="inline">Option</code> or <code class="inline">Result</code>.</p>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

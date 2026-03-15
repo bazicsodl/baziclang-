@@ -1,0 +1,6 @@
+import "stdutil"
+
+
+fn main(): void {
+    println(banner())
+}

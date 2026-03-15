@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_io(): string {
+    let body = section("Stdlib: io", p("Content coming soon."))
+    return page_layout("Stdlib: io", "stdlib", body)
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Structs ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Structs</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Structs</div>
+  <h1>Structs</h1>
+  <p>Structs bundle fields together to model real data.</p>
+
+  <h2>Define a struct</h2>
+  <pre><code>struct User {
+    name: string;
+    age: int;
+}
+</code></pre>
+
+  <h2>Create a value</h2>
+  <pre><code>let u = User{ name: "Ada", age: 21 };
+println(u.name);
+</code></pre>
+
+  <h2>Generic structs</h2>
+  <pre><code>struct Box[T] { value: T; }
+let b = Box[int]{ value: 42 };
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

@@ -1,0 +1,12 @@
+import "std"
+
+
+import "./api.bz"
+
+
+fn main(): void {
+    let res = http_serve_text(":8080", json_response(200, "{\"service\":\"bazic\",\"status\":\"ok\"}"))
+    if !res.is_ok {
+        println(res.err.message)
+    }
+}

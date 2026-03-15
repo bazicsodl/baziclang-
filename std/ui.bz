@@ -1,0 +1,519 @@
+fn ui_text(value: string): string {
+    return (("{\"t\":\"text\",\"v\":" + json_escape(value)) + "}")
+}
+
+
+fn ui_props(id: string, class_name: string): string {
+    return (((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + "}")
+}
+
+
+fn ui_props_key(id: string, class_name: string, key: string): string {
+    return (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"key\":") + json_escape(key)) + "}")
+}
+
+
+fn ui_props_for(id: string, class_name: string, for_id: string): string {
+    return (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"for\":") + json_escape(for_id)) + "}")
+}
+
+
+fn ui_element(tag: string, props_json: string, children_json: string): string {
+    return (((((("{\"t\":\"elem\",\"tag\":" + json_escape(tag)) + ",\"props\":") + props_json) + ",\"children\":") + children_json) + "}")
+}
+
+
+fn ui_children_two(a: string, b: string): string {
+    return (((("[" + a) + ",") + b) + "]")
+}
+
+
+fn ui_children_three(a: string, b: string, c: string): string {
+    return (((((("[" + a) + ",") + b) + ",") + c) + "]")
+}
+
+
+fn ui_children_four(a: string, b: string, c: string, d: string): string {
+    return (((((((("[" + a) + ",") + b) + ",") + c) + ",") + d) + "]")
+}
+
+
+fn ui_children_one(a: string): string {
+    return (("[" + a) + "]")
+}
+
+
+fn ui_div(props_json: string, children_json: string): string {
+    return ui_element("div", props_json, children_json)
+}
+
+
+fn ui_h1(text: string): string {
+    return ui_element("h1", ui_props("", "title"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_p(text: string): string {
+    return ui_element("p", ui_props("", "muted"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_label(text: string, for_id: string): string {
+    return ui_element("label", ui_props_for("", "label", for_id), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_button(label: string, id: string, class_name: string): string {
+    return ui_element("button", ui_props(id, class_name), ui_children_one(ui_text(label)))
+}
+
+
+fn ui_input(placeholder: string, id: string, class_name: string): string {
+    let props = (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"placeholder\":") + json_escape(placeholder)) + "}")
+    return (("{\"t\":\"elem\",\"tag\":\"input\",\"props\":" + props) + ",\"children\":[]}")
+}
+
+
+fn ui_input_value(placeholder: string, id: string, class_name: string, value: string): string {
+    let props = (((((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"placeholder\":") + json_escape(placeholder)) + ",\"value\":") + json_escape(value)) + "}")
+    return (("{\"t\":\"elem\",\"tag\":\"input\",\"props\":" + props) + ",\"children\":[]}")
+}
+
+
+fn ui_input_value_aria(placeholder: string, id: string, class_name: string, value: string, aria_label: string): string {
+    let props = (((((((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"placeholder\":") + json_escape(placeholder)) + ",\"value\":") + json_escape(value)) + ",\"aria-label\":") + json_escape(aria_label)) + "}")
+    return (("{\"t\":\"elem\",\"tag\":\"input\",\"props\":" + props) + ",\"children\":[]}")
+}
+
+
+fn ui_option(value: string, label: string, selected: bool): string {
+    let props = (("{\"value\":" + json_escape(value)) + "}")
+    if selected {
+        props = (("{\"value\":" + json_escape(value)) + ",\"selected\":true}")
+    }
+    return ui_element("option", props, ui_children_one(ui_text(label)))
+}
+
+
+fn ui_select(id: string, class_name: string, options_json: string): string {
+    let props = (((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + "}")
+    return ui_element("select", props, options_json)
+}
+
+
+fn ui_select_value(id: string, class_name: string, value: string, options_json: string): string {
+    let props = (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"value\":") + json_escape(value)) + "}")
+    return ui_element("select", props, options_json)
+}
+
+
+fn ui_checkbox(id: string, class_name: string, checked: bool): string {
+    let props = (((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"type\":\"checkbox\"}")
+    if checked {
+        props = (((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"type\":\"checkbox\",\"checked\":true}")
+    }
+    return (("{\"t\":\"elem\",\"tag\":\"input\",\"props\":" + props) + ",\"children\":[]}")
+}
+
+
+fn ui_switch(id: string, checked: bool): string {
+    return ui_checkbox(id, "switch", checked)
+}
+
+
+fn ui_range(id: string, value: int, min: int, max: int): string {
+    let props = (((((((("{\"id\":" + json_escape(id)) + ",\"class\":\"range\",\"type\":\"range\",\"value\":") + str(value)) + ",\"min\":") + str(min)) + ",\"max\":") + str(max)) + "}")
+    return (("{\"t\":\"elem\",\"tag\":\"input\",\"props\":" + props) + ",\"children\":[]}")
+}
+
+
+fn ui_render(tree_json: string): Result[bool,Error] {
+    return web_set_json("ui", tree_json)
+}
+
+
+fn ui_event_poll(): string {
+    let res = web_get_json("event")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_event_type(): string {
+    let res = web_get_json("event_type")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_event_target(): string {
+    let res = web_get_json("event_target")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_event_value(): string {
+    let res = web_get_json("event_value")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_event_action(): string {
+    let res = web_get_json("event_action")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_event_clear(): void {
+    let _ = web_set_json("event", "")
+    let _ = web_set_json("event_type", "")
+    let _ = web_set_json("event_target", "")
+    let _ = web_set_json("event_value", "")
+    let _ = web_set_json("event_action", "")
+}
+
+
+fn ui_state_get(key: string, fallback: string): string {
+    let res = web_get_json(("state:" + key))
+    if res.is_ok {
+        return res.value
+    }
+    return fallback
+}
+
+
+fn ui_state_set(key: string, value: string): Result[bool,Error] {
+    return web_set_json(("state:" + key), value)
+}
+
+
+fn ui_state_int_get(key: string, fallback: int): int {
+    let raw = ui_state_get(key, str(fallback))
+    let p = parse_int(raw)
+    if p.is_ok {
+        return p.value
+    }
+    return fallback
+}
+
+
+fn ui_state_int_set(key: string, value: int): Result[bool,Error] {
+    return ui_state_set(key, str(value))
+}
+
+
+fn ui_route_get(fallback: string): string {
+    let res = web_get_json("route")
+    if res.is_ok {
+        if (res.value != "") {
+            return res.value
+        }
+    }
+    return fallback
+}
+
+
+fn ui_route_set(route: string): Result[bool,Error] {
+    return web_set_json("route", route)
+}
+
+
+fn ui_store_get(key: string, fallback: string): string {
+    return ui_state_get(("store:" + key), fallback)
+}
+
+
+fn ui_store_set(key: string, value: string): Result[bool,Error] {
+    return ui_state_set(("store:" + key), value)
+}
+
+
+fn ui_store_int_get(key: string, fallback: int): int {
+    return ui_state_int_get(("store:" + key), fallback)
+}
+
+
+fn ui_store_int_set(key: string, value: int): Result[bool,Error] {
+    return ui_state_int_set(("store:" + key), value)
+}
+
+
+fn ui_focus_get(): string {
+    let res = web_get_json("focus")
+    if res.is_ok {
+        return res.value
+    }
+    return ""
+}
+
+
+fn ui_focus_set(target_id: string): Result[bool,Error] {
+    return web_set_json("focus", target_id)
+}
+
+
+fn ui_aria_label(text: string): string {
+    return (("{\"aria-label\":" + json_escape(text)) + "}")
+}
+
+
+fn ui_props_aria(id: string, class_name: string, aria_label: string): string {
+    return (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"aria-label\":") + json_escape(aria_label)) + "}")
+}
+
+
+fn ui_props_role(id: string, class_name: string, role: string): string {
+    return (((((("{\"id\":" + json_escape(id)) + ",\"class\":") + json_escape(class_name)) + ",\"role\":") + json_escape(role)) + "}")
+}
+
+
+fn ui_app_root(children_json: string): string {
+    return ui_div(ui_props("app", "card"), children_json)
+}
+
+
+fn ui_bind_input(key: string, placeholder: string, id: string): string {
+    let value = ui_state_get(key, "")
+    return ui_input_value(placeholder, id, "", value)
+}
+
+
+fn ui_component(name: string, props_json: string, children_json: string): string {
+    let props = (((("{\"name\":" + json_escape(name)) + ",\"props\":") + props_json) + "}")
+    return ui_element("div", props, children_json)
+}
+
+
+fn ui_loop_delay_ms(): int {
+    return 200
+}
+
+
+fn ui_layout(title: string, nav_json: string, body_json: string): string {
+    let header = ui_element("header", ui_props("", "layout-header"), ui_children_one(ui_h1(title)))
+    let main = ui_element("main", ui_props("", "layout-main"), ui_children_two(nav_json, body_json))
+    return ui_app_root(ui_component("App", "{}", ui_children_two(header, main)))
+}
+
+
+fn ui_class_join(a: string, b: string): string {
+    if (a == "") {
+        return b
+    }
+    if (b == "") {
+        return a
+    }
+    return ((a + " ") + b)
+}
+
+
+fn ui_nav_link(label: string, id: string, is_active: bool): string {
+    let cls = "link"
+    if is_active {
+        cls = "link active"
+    }
+    return ui_element("a", ui_props_key(id, cls, id), ui_children_one(ui_text(label)))
+}
+
+
+fn ui_badge(text: string, tone: string): string {
+    let cls = "badge"
+    if (tone != "") {
+        cls = ("badge " + tone)
+    }
+    return ui_element("span", ui_props("", cls), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_tab_button(label: string, id: string, is_active: bool): string {
+    let cls = "tab"
+    if is_active {
+        cls = "tab active"
+    }
+    return ui_element("button", ui_props(id, cls), ui_children_one(ui_text(label)))
+}
+
+
+fn ui_tabs(tabs_json: string): string {
+    return ui_element("div", ui_props("", "tabs"), tabs_json)
+}
+
+
+fn ui_card(title: string, body_json: string): string {
+    let t = ui_element("h3", ui_props("", "card-title"), ui_children_one(ui_text(title)))
+    let body = ui_element("div", ui_props("", "card-body"), ui_children_one(body_json))
+    return ui_element("div", ui_props("", "card"), ui_children_two(t, body))
+}
+
+
+fn ui_list(items_json: string): string {
+    return ui_element("ul", ui_props("", "list"), items_json)
+}
+
+
+fn ui_list_item(text: string): string {
+    return ui_element("li", ui_props("", "list-item"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_table(head_json: string, body_json: string): string {
+    let head = ui_element("thead", ui_props("", "table-head"), ui_children_one(head_json))
+    let body = ui_element("tbody", ui_props("", "table-body"), ui_children_one(body_json))
+    return ui_element("table", ui_props("", "table"), ui_children_two(head, body))
+}
+
+
+fn ui_table_class(head_json: string, body_json: string, class_name: string): string {
+    let head = ui_element("thead", ui_props("", "table-head"), ui_children_one(head_json))
+    let body = ui_element("tbody", ui_props("", "table-body"), ui_children_one(body_json))
+    return ui_element("table", ui_props("", ("table " + class_name)), ui_children_two(head, body))
+}
+
+
+fn ui_table_row(cells_json: string): string {
+    return ui_element("tr", ui_props("", "table-row"), cells_json)
+}
+
+
+fn ui_table_cell(text: string): string {
+    return ui_element("td", ui_props("", "table-cell"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_table_head_cell(text: string): string {
+    return ui_element("th", ui_props("", "table-head-cell"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_table_head_cell_sort(label: string, id: string, dir: string): string {
+    let cls = "table-sort"
+    if (dir == "asc") {
+        cls = "table-sort active asc"
+    }
+    if (dir == "desc") {
+        cls = "table-sort active desc"
+    }
+    let btn = ui_element("button", ui_props(id, cls), ui_children_one(ui_text(label)))
+    return ui_element("th", ui_props("", "table-head-cell"), ui_children_one(btn))
+}
+
+
+fn ui_table_cell_span(text: string, span: int): string {
+    let props = (("{\"class\":\"table-cell\",\"colspan\":" + str(span)) + "}")
+    return ui_element("td", props, ui_children_one(ui_text(text)))
+}
+
+
+fn ui_menu(items_json: string): string {
+    return ui_element("ul", ui_props("", "menu"), items_json)
+}
+
+
+fn ui_menu_item(label: string, id: string, is_active: bool): string {
+    let cls = "menu-item"
+    if is_active {
+        cls = "menu-item active"
+    }
+    let btn = ui_element("button", ui_props(id, cls), ui_children_one(ui_text(label)))
+    return ui_element("li", ui_props("", "menu-row"), ui_children_one(btn))
+}
+
+
+fn ui_dropdown(label: string, id: string, is_open: bool, items_json: string): string {
+    let btn = ui_element("button", ui_props(id, "dropdown-trigger"), ui_children_one(ui_text(label)))
+    let menu_cls = "dropdown-menu"
+    if !is_open {
+        menu_cls = "dropdown-menu hidden"
+    }
+    let menu = ui_element("div", ui_props("", menu_cls), ui_children_one(ui_menu(items_json)))
+    return ui_element("div", ui_props("", "dropdown"), ui_children_two(btn, menu))
+}
+
+
+fn ui_modal(title: string, body_json: string, is_open: bool): string {
+    let cls = "modal"
+    if !is_open {
+        cls = "modal hidden"
+    }
+    let head = ui_element("div", ui_props("", "modal-head"), ui_children_one(ui_text(title)))
+    let body = ui_element("div", ui_props("", "modal-body"), ui_children_one(body_json))
+    let panel = ui_element("div", ui_props("", "modal-panel"), ui_children_two(head, body))
+    return ui_element("div", ui_props("", cls), ui_children_one(panel))
+}
+
+
+fn ui_section(title: string, body_json: string): string {
+    let t = ui_element("h2", ui_props("", "section-title"), ui_children_one(ui_text(title)))
+    return ui_element("section", ui_props("", "section"), ui_children_two(t, body_json))
+}
+
+
+fn ui_form_row(label: string, input_json: string): string {
+    let l = ui_element("div", ui_props("", "form-label"), ui_children_one(ui_text(label)))
+    let field = ui_element("div", ui_props("", "form-field"), ui_children_one(input_json))
+    return ui_element("div", ui_props("", "form-row"), ui_children_two(l, field))
+}
+
+
+fn ui_toast(message: string, tone: string): string {
+    let cls = "toast"
+    if (tone != "") {
+        cls = ("toast " + tone)
+    }
+    return ui_element("div", ui_props("", cls), ui_children_one(ui_text(message)))
+}
+
+
+fn ui_toast_stack(toasts_json: string): string {
+    return ui_element("div", ui_props("", "toast-stack"), toasts_json)
+}
+
+
+fn ui_empty(text: string): string {
+    return ui_element("div", ui_props("", "empty"), ui_children_one(ui_text(text)))
+}
+
+
+fn ui_page(page: string, name: string, body_json: string): string {
+    let cls = "page hidden"
+    if (page == name) {
+        cls = "page active"
+    }
+    return ui_element("section", ui_props_key(("page-" + name), cls, ("page-" + name)), ui_children_one(body_json))
+}
+
+
+fn ui_render_from_state(title: string, subtitle: string, clicks: int, page: string): string {
+    let sub = ui_p(subtitle)
+    let status = ui_p(("Clicks: " + str(clicks)))
+    let btn = ui_button("Click Me", "btn", "ghost")
+    let input = ui_bind_input("name", "Type your name", "name")
+    let nav_home = ui_nav_link("Home", "nav-home", (page == "home"))
+    let nav_about = ui_nav_link("About", "nav-about", (page == "about"))
+    let nav = ui_element("nav", ui_props_key("nav", "nav", "nav"), ui_children_two(nav_home, nav_about))
+    let hero = ui_element("div", ui_props("", "hero"), ui_children_three(btn, input, status))
+    let home_body = ui_element("div", ui_props("", "stack"), ui_children_two(ui_p("Welcome to Bazic UI."), ui_p("State and events are explicit.")))
+    let about_body = ui_element("div", ui_props("", "stack"), ui_children_two(ui_p("Bazic UI is a minimal JSON UI DSL."), ui_p("Rendered in the browser via WASM.")))
+    let page_body = home_body
+    if page == "about" {
+        page_body = about_body
+    }
+    let page_section = ui_section("Page", page_body)
+    let body = ui_element("div", ui_props("", "content"), ui_children_two(sub, ui_element("div", ui_props("", "stack"), ui_children_two(hero, page_section))))
+    let root = ui_layout(title, nav, body)
+    let _ = ui_render(root)
+    return "ok"
+}

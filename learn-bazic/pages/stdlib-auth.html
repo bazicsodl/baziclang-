@@ -1,0 +1,53 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib auth ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib auth</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? auth</div>
+  <h1>std/auth, std/jwt, std/session</h1>
+  <p>Authentication helpers and sessions.</p>
+
+  <h2>Password hashing</h2>
+  <pre><code>let hash = auth_hash_password("secret");
+if hash.is_ok { println(hash.value); }
+</code></pre>
+
+  <h2>Session cookies</h2>
+  <pre><code>let header = auth_cookie_header("session", "token", 7, true);
+println(header);
+</code></pre>
+
+  <h2>JWT signing</h2>
+  <pre><code>let token = jwt_sign_hs256("{"alg":"HS256"}", "{"sub":"1"}", "secret");
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

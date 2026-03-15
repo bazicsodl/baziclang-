@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_collections(): string {
+    let body = section("Stdlib: collections", p("Content coming soon."))
+    return page_layout("Stdlib: collections", "stdlib", body)
+}

@@ -1,0 +1,30 @@
+{
+  "name": "baziclang",
+  "version": 2,
+  "signing_public_key": "hchZfXqjD9m5U1qo5H9jmVXkXfBMZxd9i8RxdAOvHQI=",
+  "deps": {
+    "std": {
+      "provenance": {
+        "source_path": "C:\\Users\\Ipeh\\Documents\\baziclang\\std",
+        "source_kind": "local_path"
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "checksum": "45c28f7221cf8e8500043b006257a45f0ac2e972bc03b40e3e657f8346372b9a"
+      },
+      "signature": "be9RBtjqwhs6CKqrdOCqG4WEd+XJZX17Aul2kqAn9hmNRqUPvXsurEXy0jXcUK55OBIxOkN6aq0KVAR0GLH1Bg=="
+    },
+    "stdutil": {
+      "provenance": {
+        "source_path": "C:\\Users\\Ipeh\\Documents\\baziclang\\examples\\packages\\stdutil",
+        "source_kind": "local_path"
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "checksum": "8d152c0a12e9c003da6c0b668da58605992159de94e60317c95f74cd91829e20"
+      },
+      "signature": "7j9F5uFJi86YDpnkfvs6aJpLcubILyAEXdx4SxkS3SFGpAeFjNdrwAw9LM+HL8v2n/wbziGpXZvSViBYRyvPDA=="
+    }
+  },
+  "generated_at": "2026-03-13T15:24:26Z"
+}

@@ -1,0 +1,10 @@
+fn main(): void {
+    let userName = some("Ipeh")
+    let noName = none("")
+    let failed = err(0, Error { message: "network timeout" })
+    let worked = ok(42, Error { message: "" })
+    println(userName.is_some)
+    println(noName.is_some)
+    println(failed.err.message)
+    println(worked.value)
+}

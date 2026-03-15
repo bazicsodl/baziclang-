@@ -1,0 +1,32 @@
+:root {
+  --ui-bg: #f6f1e8;
+  --ui-panel: #fff4e4;
+  --ui-panel-border: #e4d3bd;
+  --ui-ink: #1f1b16;
+  --ui-muted: #6f5a3d;
+  --ui-accent: #d9a24d;
+  --ui-accent-ink: #2b1e0e;
+  --ui-card: #ffffff;
+  --ui-shadow: rgba(62, 50, 38, 0.14);
+  --ui-nav: #2d2418;
+  --ui-nav-ink: #fff5e9;
+  --ui-focus: #d9a24d;
+  --ui-radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-bg: #181410;
+    --ui-panel: #241c14;
+    --ui-panel-border: #3b2f24;
+    --ui-ink: #f4e7d5;
+    --ui-muted: #c9b69b;
+    --ui-accent: #e3b35f;
+    --ui-accent-ink: #2b1e0e;
+    --ui-card: #211a14;
+    --ui-shadow: rgba(0, 0, 0, 0.4);
+    --ui-nav: #e3b35f;
+    --ui-nav-ink: #2b1e0e;
+    --ui-focus: #e3b35f;
+  }
+}

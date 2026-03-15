@@ -1,0 +1,15 @@
+import "std"
+
+
+fn form_page(clicks: int, name: string): string {
+    let email = ui_store_get("form.email", "")
+    let company = ui_store_get("form.company", "")
+    let status = ui_store_get("form.status", "Idle")
+    let email_input = ui_input_value_aria("Email", "form-email", "", email, "Email")
+    let company_input = ui_input_value_aria("Company", "form-company", "", company, "Company")
+    let submit = ui_element("button", ui_props_aria("form-submit", "ghost", "Submit form"), ui_children_one(ui_text("Submit")))
+    let form = ui_element("div", ui_props("", "stack"), ui_children_three(email_input, company_input, submit))
+    let status_badge = ui_badge(status, "tone-light")
+    let body = ui_element("div", ui_props("", "stack"), ui_children_two(form, status_badge))
+    return ui_section("Form", body)
+}

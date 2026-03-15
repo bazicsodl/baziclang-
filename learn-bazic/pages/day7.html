@@ -1,0 +1,72 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 7 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 7</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 7</div>
+  <h1>Day 7 ? Build a mini app</h1>
+  <p>Goal: build a tiny note app that reads and writes a file.</p>
+
+  <h2>What you will build</h2>
+  <ul class="list">
+    <li>Read <code class="inline">note.txt</code>.</li>
+    <li>Append a new line.</li>
+    <li>Save it back.</li>
+  </ul>
+
+  <h2>Mini app code</h2>
+  <pre><code>import "std";
+
+fn main(): void {
+    let res = fs_read_file("note.txt");
+    let current = "";
+    if res.is_ok { current = res.value; }
+
+    let line = "New note at " + time_now_rfc3339();
+    let next = current + "
+" + line;
+
+    let saved = fs_write_file("note.txt", next);
+    if saved.is_ok {
+        println("Saved note");
+    } else {
+        println(saved.err.message);
+    }
+}
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Change the line to include your name.
+  </div>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can build a small app using the stdlib.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

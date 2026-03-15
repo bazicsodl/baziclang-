@@ -1,0 +1,76 @@
+fn auth_hash_password(password: string): Result[string,Error] {
+    return crypto_bcrypt_hash(password, 12)
+}
+
+
+fn auth_verify_password(password: string, hash: string): Result[bool,Error] {
+    return crypto_bcrypt_verify(password, hash)
+}
+
+
+fn auth_session_token(): Result[string,Error] {
+    return crypto_random_hex(32)
+}
+
+
+fn auth_session_hash(token: string): string {
+    return crypto_sha256_hex(token)
+}
+
+
+fn auth_cookie_header(name: string, value: string, max_age_days: int, secure: bool): string {
+    let max_age = str((max_age_days * 86400))
+    let cookie = ((((name + "=") + value) + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=") + max_age)
+    if secure {
+        cookie = (cookie + "; Secure")
+    }
+    return ("Set-Cookie: " + cookie)
+}
+
+
+fn auth_cookie_clear_header(name: string, secure: bool): string {
+    let cookie = (name + "=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+    if secure {
+        cookie = (cookie + "; Secure")
+    }
+    return ("Set-Cookie: " + cookie)
+}
+
+
+fn auth_session_create(db_path: string, user_id: string, days: int): Result[string,Error] {
+    let tok = auth_session_token()
+    if !tok.is_ok {
+        return err("", tok.err)
+    }
+    let token = tok.value
+    let exp = time_add_days(time_now_rfc3339(), days)
+    if !exp.is_ok {
+        return err("", exp.err)
+    }
+    let h = auth_session_hash(token)
+    let res = session_put(db_path, h, user_id, exp.value)
+    if !res.is_ok {
+        return err("", res.err)
+    }
+    return ok(token, Error { message: "" })
+}
+
+
+fn auth_session_user(db_path: string, req: ServerRequest, cookie_name: string): Result[string,Error] {
+    let token = http_cookie_get(req.cookies, cookie_name)
+    if (token == "") {
+        return err("", Error { message: "no session" })
+    }
+    let h = auth_session_hash(token)
+    return session_get_user(db_path, h)
+}
+
+
+fn auth_session_destroy(db_path: string, req: ServerRequest, cookie_name: string): Result[bool,Error] {
+    let token = http_cookie_get(req.cookies, cookie_name)
+    if (token == "") {
+        return ok(true, Error { message: "" })
+    }
+    let h = auth_session_hash(token)
+    return session_delete(db_path, h)
+}

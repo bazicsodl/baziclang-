@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_reference(): string {
+    let body = section("Reference", p("Content coming soon."))
+    return page_layout("Reference", "reference", body)
+}

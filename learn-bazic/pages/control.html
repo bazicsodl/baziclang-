@@ -1,0 +1,71 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Control Flow ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Control flow</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Control Flow</div>
+  <h1>Control Flow</h1>
+  <p>Control flow is how you choose or repeat work.</p>
+
+  <h2>If / else</h2>
+  <pre><code>if score >= 60 {
+    println("pass");
+} else {
+    println("try again");
+}
+</code></pre>
+
+  <h2>While loops</h2>
+  <pre><code>let i = 0;
+while i < 3 {
+    println(str(i));
+    i = i + 1;
+}
+</code></pre>
+
+  <h2>Match statement</h2>
+  <pre><code>enum Mode { Dev, Prod }
+
+fn main(): void {
+    let m = Mode.Dev;
+    match m {
+        Dev: { println("dev"); }
+        Prod: { println("prod"); }
+    }
+}
+</code></pre>
+
+  <h2>Match expression</h2>
+  <pre><code>let label = match m {
+    Dev: "Dev mode",
+    Prod: "Prod mode",
+};
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

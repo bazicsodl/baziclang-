@@ -1,0 +1,52 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Enums ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Enums</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Enums</div>
+  <h1>Enums</h1>
+  <p>Enums define a small set of choices.</p>
+
+  <h2>Define an enum</h2>
+  <pre><code>enum Role { Admin, Member, Guest }
+</code></pre>
+
+  <h2>Use it</h2>
+  <pre><code>let r = Role.Member;
+</code></pre>
+
+  <h2>Handle with match</h2>
+  <pre><code>match r {
+    Admin: { println("admin"); }
+    Member: { println("member"); }
+    Guest: { println("guest"); }
+}
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

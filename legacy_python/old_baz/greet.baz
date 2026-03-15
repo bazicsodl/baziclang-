@@ -1,0 +1,19 @@
+fn greet(name) {
+    print("Hello,", name)
+}
+
+greet("Bazic User")
+
+fn story(name) {
+    print("Once upon a time,", name)
+}
+
+greet("there lived a very rich man, he was rich and was also the happiest man to live on earth. He hoved God and and though he kept sinning, God kept forgiving him. And he is forever greatful for our lord and saviour jesus christ.")
+
+A) Add arrays + dictionaries
+B) Add standard library functions
+C) Add module system
+D) Add bytecode VM
+E) Add package manager
+F) Add type system
+G) Another idea you have

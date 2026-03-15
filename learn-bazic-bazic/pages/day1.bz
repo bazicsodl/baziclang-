@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_day1(): string {
+    let body = section("Day 1", p("Content coming soon."))
+    return page_layout("Day 1", "track", body)
+}

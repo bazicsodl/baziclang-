@@ -1,0 +1,30 @@
+struct User {
+    name: string
+    age: int
+}
+
+
+struct Box[T] {
+    value: T
+}
+
+
+interface Named {
+    fn label(self: User): string
+}
+
+
+impl User: Named
+
+
+fn User_label(self: User): string {
+    return self.name
+}
+
+
+fn main(): void {
+    let u = User { age: 27, name: "Ipeh" }
+    let b = Box[int] { value: 99 }
+    println(u.label())
+    println(b.value)
+}

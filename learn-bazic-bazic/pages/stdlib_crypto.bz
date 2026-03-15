@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_crypto(): string {
+    let body = section("Stdlib: crypto", p("Content coming soon."))
+    return page_layout("Stdlib: crypto", "stdlib", body)
+}

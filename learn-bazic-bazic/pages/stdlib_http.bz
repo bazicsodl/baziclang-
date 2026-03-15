@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_http(): string {
+    let body = section("Stdlib: http", p("Content coming soon."))
+    return page_layout("Stdlib: http", "stdlib", body)
+}

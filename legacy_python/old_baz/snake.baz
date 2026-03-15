@@ -1,0 +1,79 @@
+let width = 20
+let height = 10
+
+let snake = [ {x: 5, y: 5} ]  
+let dir = "RIGHT"
+
+fn render() {
+    let y = 0
+    while (y < height) {
+        let x = 0
+        let line = ""
+        while (x < width) {
+            let isSnake = false
+            let i = 0
+            while (i < snake.length) {
+                let s = snake[i]
+                if (s.x == x && s.y == y) {
+                    isSnake = true
+                }
+                i = i + 1
+            }
+
+            if (isSnake) {
+                line = line + "O"
+            } else {
+                line = line + "."
+            }
+
+            x = x + 1
+        }
+        print(line)
+        y = y + 1
+    }
+}
+
+fn step() {
+    let head = snake[0]
+    let newX = head.x
+    let newY = head.y
+
+    if (dir == "RIGHT") {
+        newX = newX + 1
+    } else if (dir == "LEFT") {
+        newX = newX - 1
+    } else if (dir == "UP") {
+        newY = newY - 1
+    } else if (dir == "DOWN") {
+        newY = newY + 1
+    }
+
+    if (newX < 0 || newX >= width || newY < 0 || newY >= height) {
+        print("Game Over")
+        return "STOP"
+    }
+
+    let newHead = {x: newX, y: newY}
+    let newSnake = [newHead]
+
+    let i = 0
+    while (i < snake.length - 1) {
+        newSnake = newSnake + [snake[i]]
+        i = i + 1
+    }
+
+    snake = newSnake
+    return "OK"
+}
+
+let t = 0
+while (t < 20) {      
+    print("Frame: " + t)
+    render()
+    let status = step()
+    if (status == "STOP") {
+        break
+    }
+    print("") 
+    t = t + 1
+}

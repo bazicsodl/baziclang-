@@ -1,0 +1,34 @@
+struct StringBuilder {
+    value: string
+}
+
+
+fn sb_new(): StringBuilder {
+    return StringBuilder { value: "" }
+}
+
+
+fn sb_append(sb: StringBuilder, s: string): StringBuilder {
+    return StringBuilder { value: (sb.value + s) }
+}
+
+
+fn sb_append_line(sb: StringBuilder, s: string): StringBuilder {
+    return StringBuilder { value: ((sb.value + s) + "\n") }
+}
+
+
+fn sb_string(sb: StringBuilder): string {
+    return sb.value
+}
+
+
+fn sb_len(sb: StringBuilder): int {
+    return len(sb.value)
+}
+
+
+fn sb_clear(sb: StringBuilder): StringBuilder {
+    let _ = sb.value
+    return StringBuilder { value: "" }
+}

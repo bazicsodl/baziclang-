@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_safety(): string {
+    let body = section("Safety", p("Content coming soon."))
+    return page_layout("Safety", "reference", body)
+}

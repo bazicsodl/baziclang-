@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bazic UI Dashboard</title>
+    <link rel="stylesheet" href="../../theme.css" />
+    <link rel="stylesheet" href="../../style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <div class="badge">WASM</div>
+        <h1>Bazic UI Dashboard</h1>
+        <p>Reference app built with Bazic UI.</p>
+      </header>
+      <section class="panel">
+        <div class="row">
+          <button id="run">Run Bazic</button>
+          <button id="clear" class="ghost">Clear</button>
+          <span class="status" id="status">idle</span>
+        </div>
+        <pre id="output"></pre>
+      </section>
+      <section class="panel">
+        <h2>UI</h2>
+        <div id="ui" class="ui-root"></div>
+      </section>
+    </main>
+    <script src="../../wasm_exec.js"></script>
+    <script src="../../app.js"></script>
+  </body>
+</html>

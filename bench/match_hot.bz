@@ -1,0 +1,40 @@
+import "std"
+
+
+enum Color { Red, Green, Blue }
+
+
+fn main(): void {
+    let n = 20000000
+    let i = 0
+    let acc = 0
+    let start = time_unix_millis()
+    while (i < n) {
+        let v = (i % 3)
+        let c = Red
+        if (v == 1) {
+            c = Green
+        } else {
+            if (v == 2) {
+                c = Blue
+            }
+        }
+        match c {
+            Red: {
+                acc = (acc + 1)
+            }
+            Green: {
+                acc = (acc + 2)
+            }
+            Blue: {
+                acc = (acc + 3)
+            }
+        }
+        i = (i + 1)
+    }
+    let end = time_unix_millis()
+    if (acc == -1) {
+        println("never")
+    }
+    println(str((end - start)))
+}

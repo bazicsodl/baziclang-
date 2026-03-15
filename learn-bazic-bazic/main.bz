@@ -1,0 +1,274 @@
+import "std";
+
+
+import "./pages/layout.bz";
+
+
+import "./pages/home.bz";
+
+
+import "./pages/start.bz";
+
+
+import "./pages/track.bz";
+
+
+import "./pages/reference.bz";
+
+
+import "./pages/stdlib.bz";
+
+
+import "./pages/web.bz";
+
+
+import "./pages/ui.bz";
+
+
+import "./pages/tooling.bz";
+
+
+import "./pages/safety.bz";
+
+
+import "./pages/testing.bz";
+
+
+import "./pages/glossary.bz";
+
+
+import "./pages/day1.bz";
+
+
+import "./pages/day2.bz";
+
+
+import "./pages/day3.bz";
+
+
+import "./pages/day4.bz";
+
+
+import "./pages/day5.bz";
+
+
+import "./pages/day6.bz";
+
+
+import "./pages/day7.bz";
+
+
+import "./pages/stdlib_io.bz";
+
+
+import "./pages/stdlib_fs.bz";
+
+
+import "./pages/stdlib_time.bz";
+
+
+import "./pages/stdlib_json.bz";
+
+
+import "./pages/stdlib_http.bz";
+
+
+import "./pages/stdlib_db.bz";
+
+
+import "./pages/stdlib_crypto.bz";
+
+
+import "./pages/stdlib_auth.bz";
+
+
+import "./pages/stdlib_collections.bz";
+
+
+import "./pages/stdlib_os.bz";
+
+
+import "./pages/stdlib_validate.bz";
+
+
+import "./pages/stdlib_sql.bz";
+
+
+import "./pages/stdlib_web.bz";
+
+
+import "./pages/stdlib_ui.bz";
+
+
+fn html_ok(body: string): ServerResponse {
+    return http_response(200, body, "text/html; charset=utf-8");
+}
+
+
+fn get_root(_: ServerRequest): ServerResponse {
+    return html_ok(page_home());
+}
+
+
+fn get_start(_: ServerRequest): ServerResponse {
+    return html_ok(page_start());
+}
+
+
+fn get_track(_: ServerRequest): ServerResponse {
+    return html_ok(page_track());
+}
+
+
+fn get_reference(_: ServerRequest): ServerResponse {
+    return html_ok(page_reference());
+}
+
+
+fn get_stdlib(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib());
+}
+
+
+fn get_web(_: ServerRequest): ServerResponse {
+    return html_ok(page_web());
+}
+
+
+fn get_ui(_: ServerRequest): ServerResponse {
+    return html_ok(page_ui());
+}
+
+
+fn get_tooling(_: ServerRequest): ServerResponse {
+    return html_ok(page_tooling());
+}
+
+
+fn get_safety(_: ServerRequest): ServerResponse {
+    return html_ok(page_safety());
+}
+
+
+fn get_testing(_: ServerRequest): ServerResponse {
+    return html_ok(page_testing());
+}
+
+
+fn get_glossary(_: ServerRequest): ServerResponse {
+    return html_ok(page_glossary());
+}
+
+
+fn get_day1(_: ServerRequest): ServerResponse {
+    return html_ok(page_day1());
+}
+
+
+fn get_day2(_: ServerRequest): ServerResponse {
+    return html_ok(page_day2());
+}
+
+
+fn get_day3(_: ServerRequest): ServerResponse {
+    return html_ok(page_day3());
+}
+
+
+fn get_day4(_: ServerRequest): ServerResponse {
+    return html_ok(page_day4());
+}
+
+
+fn get_day5(_: ServerRequest): ServerResponse {
+    return html_ok(page_day5());
+}
+
+
+fn get_day6(_: ServerRequest): ServerResponse {
+    return html_ok(page_day6());
+}
+
+
+fn get_day7(_: ServerRequest): ServerResponse {
+    return html_ok(page_day7());
+}
+
+
+fn get_stdlib_io(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_io());
+}
+
+
+fn get_stdlib_fs(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_fs());
+}
+
+
+fn get_stdlib_time(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_time());
+}
+
+
+fn get_stdlib_json(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_json());
+}
+
+
+fn get_stdlib_http(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_http());
+}
+
+
+fn get_stdlib_db(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_db());
+}
+
+
+fn get_stdlib_crypto(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_crypto());
+}
+
+
+fn get_stdlib_auth(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_auth());
+}
+
+
+fn get_stdlib_collections(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_collections());
+}
+
+
+fn get_stdlib_os(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_os());
+}
+
+
+fn get_stdlib_validate(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_validate());
+}
+
+
+fn get_stdlib_sql(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_sql());
+}
+
+
+fn get_stdlib_web(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_web());
+}
+
+
+fn get_stdlib_ui(_: ServerRequest): ServerResponse {
+    return html_ok(page_stdlib_ui());
+}
+
+
+fn main(): void {
+    println("Learn Bazic (server) running on http://localhost:8080");
+    let ok = http_serve_app(":8080");
+    if !ok.is_ok {
+        println(ok.err.message);
+    }
+}

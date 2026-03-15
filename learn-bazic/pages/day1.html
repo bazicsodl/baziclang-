@@ -1,0 +1,72 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 1 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 1</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 1</div>
+  <h1>Day 1 ? Printing and first programs</h1>
+  <p>Goal: run a program that prints words. That is enough for day 1.</p>
+
+  <h2>Your first file</h2>
+  <pre><code>fn main(): void {
+    println("Hello, Bazic!");
+}
+</code></pre>
+
+  <h2>What each part means</h2>
+  <ul class="list">
+    <li><code class="inline">fn main(): void</code> defines the entry point.</li>
+    <li><code class="inline">{ }</code> wraps the block of code.</li>
+    <li><code class="inline">println</code> prints with a newline.</li>
+  </ul>
+
+  <div class="try">
+    <strong>Try it:</strong> Change the text to your name and run again.
+  </div>
+
+  <h2>print vs println</h2>
+  <pre><code>fn main(): void {
+    print("Hello");
+    print(" ");
+    println("world");
+}
+</code></pre>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can run a Bazic program and see output.
+  </div>
+
+  <h2>Mini practice</h2>
+  <ol class="list">
+    <li>Print your favorite food.</li>
+    <li>Print two lines using <code class="inline">println</code>.</li>
+    <li>Print three words on the same line using <code class="inline">print</code>.</li>
+  </ol>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

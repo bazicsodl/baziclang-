@@ -1,0 +1,11 @@
+import "./lib/main.bz"
+
+
+fn main(): void {
+    let u = make_user("Ipeh", 27)
+    println(u.name)
+    let v = identity(42)
+    println(v)
+    let role: Role = Admin
+    println(role_name(role))
+}

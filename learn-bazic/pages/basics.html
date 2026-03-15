@@ -1,0 +1,69 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Basics ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Basics</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Basics</div>
+  <h1>Basics of Bazic</h1>
+  <p>This is the short version of the language. Use it when you want a fast refresher.</p>
+
+  <h2>Every program starts at main</h2>
+  <pre><code>fn main(): void {
+    println("Start here");
+}
+</code></pre>
+
+  <h2>Variables</h2>
+  <pre><code>let name: string = "Rin";
+let age = 12;
+</code></pre>
+
+  <h2>Control flow</h2>
+  <pre><code>if age >= 18 { println("adult"); } else { println("minor"); }
+</code></pre>
+
+  <h2>Loops</h2>
+  <pre><code>let i = 0;
+while i < 3 { println(str(i)); i = i + 1; }
+</code></pre>
+
+  <h2>Functions</h2>
+  <pre><code>fn add(a: int, b: int): int { return a + b; }
+</code></pre>
+
+  <h2>Structs and enums</h2>
+  <pre><code>struct User { name: string; }
+enum Role { Admin, User }
+</code></pre>
+
+  <h2>Match</h2>
+  <pre><code>match Role.Admin { Admin: { println("admin"); } User: { println("user"); } }
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

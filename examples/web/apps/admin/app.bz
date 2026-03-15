@@ -1,0 +1,57 @@
+import "std"
+
+
+fn admin_page(): string {
+    let status = ui_state_get("filter-status", "all")
+    let alerts = ui_state_get("alerts", "false")
+    let sla = ui_state_int_get("sla", 95)
+    let opt1 = ui_option("all", "All", (status == "all"))
+    let opt2 = ui_option("healthy", "Healthy", (status == "healthy"))
+    let opt3 = ui_option("degraded", "Degraded", (status == "degraded"))
+    let select = ui_select("filter-status", "select", ui_children_three(opt1, opt2, opt3))
+    let alert_toggle = ui_switch("alerts", (alerts == "true"))
+    let sla_range = ui_range("sla", sla, 80, 100)
+    let filters = ui_card("Filters", ui_element("div", ui_props("", "stack"), ui_children_three(ui_form_row("Status", select), ui_form_row("Alerts", alert_toggle), ui_form_row("SLA", sla_range))))
+    let head = ui_table_row(ui_children_three(ui_table_head_cell("Service"), ui_table_head_cell("State"), ui_table_head_cell("Latency")))
+    let row1 = ui_table_row(ui_children_three(ui_table_cell("API"), ui_table_cell("Healthy"), ui_table_cell("120ms")))
+    let row2 = ui_table_row(ui_children_three(ui_table_cell("Cache"), ui_table_cell("Warm"), ui_table_cell("18ms")))
+    let row3 = ui_table_row(ui_children_three(ui_table_cell("Queue"), ui_table_cell("Degraded"), ui_table_cell("420ms")))
+    let table = ui_table(head, ui_children_three(row1, row2, row3))
+    let table_card = ui_card("Service Health", table)
+    let stats = ui_element("div", ui_props("", "grid"), ui_children_three(ui_card("Active Users", ui_p("12.4k")), ui_card("Latency P95", ui_p((str(sla) + "% SLA"))), ui_card("Alerts", ui_p(alerts))))
+    let body = ui_element("div", ui_props("", "stack"), ui_children_three(stats, filters, table_card))
+    return ui_section("Admin Overview", body)
+}
+
+
+fn render_ui(): void {
+    let nav = ui_element("nav", ui_props("nav", "nav"), ui_children_two(ui_nav_link("Overview", "nav-home", true), ui_nav_link("Services", "nav-services", false)))
+    let root = ui_layout("Bazic Admin", nav, admin_page())
+    let _ = ui_render(root)
+}
+
+
+fn main(): void {
+    render_ui()
+    let i = 0
+    while (i < 40) {
+        let ev = ui_event_type()
+        let target = ui_event_target()
+        let val = ui_event_value()
+        if ((ev == "input") && (target == "filter-status")) {
+            ui_event_clear()
+            let _ = ui_state_set("filter-status", val)
+        }
+        if ((ev == "input") && (target == "alerts")) {
+            ui_event_clear()
+            let _ = ui_state_set("alerts", val)
+        }
+        if ((ev == "input") && (target == "sla")) {
+            ui_event_clear()
+            let _ = ui_state_set("sla", val)
+        }
+        render_ui()
+        time_sleep_ms(ui_loop_delay_ms())
+        i = (i + 1)
+    }
+}

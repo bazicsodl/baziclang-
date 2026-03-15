@@ -1,0 +1,74 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Web Stack ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Web stack</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Web stack</div>
+  <h1>Web Stack (Server Routing)</h1>
+  <p>Bazic includes a convention-based HTTP server via <code class="inline">http_serve_app</code>.</p>
+
+  <h2>Quickstart</h2>
+  <pre><code>.\bin\bazic.exe run .\examples\apps\webstack\main.bz
+</code></pre>
+
+  <h2>How routing works</h2>
+  <p>Handlers are discovered by name:</p>
+  <pre><code>fn get_root(req: ServerRequest): ServerResponse {
+    return http_text(200, "hello");
+}
+</code></pre>
+
+  <h2>Path parameters</h2>
+  <pre><code>fn get_posts_p_id(req: ServerRequest): ServerResponse {
+    let id = http_params_get(req.params, "id");
+    return http_text(200, "post " + id);
+}
+</code></pre>
+
+  <h2>Reading query, headers, cookies</h2>
+  <pre><code>let page = http_query_get(req.query, "page");
+let auth = http_header_get(req.headers, "Authorization");
+let session = http_cookie_get(req.cookies, "session");
+</code></pre>
+
+  <h2>Return JSON</h2>
+  <pre><code>return http_json(200, "{"ok":true}");
+</code></pre>
+
+  <h2>Server limits</h2>
+  <p>Use environment variables to tune limits:</p>
+  <pre><code>BAZIC_HTTP_MAX_BODY
+BAZIC_HTTP_READ_TIMEOUT_MS
+BAZIC_HTTP_WRITE_TIMEOUT_MS
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

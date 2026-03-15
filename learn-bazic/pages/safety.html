@@ -1,0 +1,60 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Safety ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Safety</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Safety</div>
+  <h1>Safety Model</h1>
+  <p>Bazic is designed to make mistakes loud and behavior predictable.</p>
+
+  <h2>No nil</h2>
+  <p>Bazic rejects <code class="inline">nil</code>. Use <code class="inline">Option</code> or <code class="inline">Result</code> instead.</p>
+
+  <h2>Explicit errors</h2>
+  <pre><code>let res = parse_int("42");
+if res.is_ok {
+    println(str(res.value));
+} else {
+    println(res.err.message);
+}
+</code></pre>
+
+  <h2>No implicit conversion</h2>
+  <p>Numbers and strings do not auto-convert. Use <code class="inline">str</code> or parsing helpers.</p>
+
+  <h2>Exhaustive match</h2>
+  <p>When you match on an enum, you must handle every variant.</p>
+
+  <h2>Lint rules</h2>
+  <p>The linter discourages using <code class="inline">any</code> except at boundaries.</p>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

@@ -1,0 +1,66 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Day 4 ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Day 4</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Day 4</div>
+  <h1>Day 4 ? Loops</h1>
+  <p>Goal: repeat work using <code class="inline">while</code>.</p>
+
+  <h2>Counting loop</h2>
+  <pre><code>fn main(): void {
+    let i = 1;
+    while i <= 5 {
+        println(str(i));
+        i = i + 1;
+    }
+}
+</code></pre>
+
+  <h2>Loop with a total</h2>
+  <pre><code>fn main(): void {
+    let i = 1;
+    let total = 0;
+    while i <= 5 {
+        total = total + i;
+        i = i + 1;
+    }
+    println(str(total));
+}
+</code></pre>
+
+  <div class="try">
+    <strong>Try it:</strong> Print the first 10 even numbers.
+  </div>
+
+  <div class="checkpoint">
+    <strong>Checkpoint:</strong> You can repeat code and update variables.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

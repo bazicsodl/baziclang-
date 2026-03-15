@@ -1,0 +1,51 @@
+import "std"
+
+
+fn base_css(): string {
+    return "body{margin:0;font-family:Georgia,serif;background:#f7f4ef;color:#1b1b1f;line-height:1.6;} .wrap{max-width:900px;margin:0 auto;padding:24px;} h1{font-family:Arial,sans-serif;} .nav{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;} .nav a{text-decoration:none;color:#1b1b1f;font-weight:700;} .section{margin:16px 0;} code{font-family:Consolas,monospace;} pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:10px;overflow-x:auto;}"
+}
+
+
+fn nav_link(label: string, href: string, key: string, active: string): string {
+    let cls = ""
+    if (key == active) {
+        cls = "active"
+    }
+    return (((((("<a class='" + cls) + "' href='") + href) + "'>") + label) + "</a>")
+}
+
+
+fn nav_bar(active: string): string {
+    let links = ""
+    links = (links + nav_link("Home", "/", "home", active))
+    links = (links + nav_link("Start", "/start", "start", active))
+    links = (links + nav_link("Track", "/track", "track", active))
+    links = (links + nav_link("Reference", "/reference", "reference", active))
+    links = (links + nav_link("Stdlib", "/stdlib", "stdlib", active))
+    links = (links + nav_link("Web", "/web", "web", active))
+    links = (links + nav_link("UI", "/ui", "ui", active))
+    links = (links + nav_link("Tooling", "/tooling", "tooling", active))
+    return (("<nav class='nav'>" + links) + "</nav>")
+}
+
+
+fn page_layout(title: string, active: string, content: string): string {
+    let head = (((("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>" + title) + "</title><style>") + base_css()) + "</style></head><body>")
+    let wrap = (((((("<div class='wrap'>" + nav_bar(active)) + "<h1>") + title) + "</h1>") + content) + "</div>")
+    return ((head + wrap) + "</body></html>")
+}
+
+
+fn section(title: string, body: string): string {
+    return (((("<div class='section'><h2>" + title) + "</h2>") + body) + "</div>")
+}
+
+
+fn p(text: string): string {
+    return (("<p>" + text) + "</p>")
+}
+
+
+fn code_block(code: string): string {
+    return (("<pre><code>" + code) + "</code></pre>")
+}

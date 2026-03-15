@@ -1,0 +1,98 @@
+fn db_exec(path: string, sql: string): Result[bool,Error] {
+    return __std_db_exec(path, sql)
+}
+
+
+fn db_query(path: string, sql: string): Result[string,Error] {
+    return __std_db_query(path, sql)
+}
+
+
+fn db_exec_with(driver: string, dsn: string, sql: string): Result[bool,Error] {
+    return __std_db_exec_with(driver, dsn, sql)
+}
+
+
+fn db_query_with(driver: string, dsn: string, sql: string): Result[string,Error] {
+    return __std_db_query_with(driver, dsn, sql)
+}
+
+
+fn db_query_json(path: string, sql: string): Result[string,Error] {
+    return __std_db_query_json(path, sql)
+}
+
+
+fn db_query_json_with(driver: string, dsn: string, sql: string): Result[string,Error] {
+    return __std_db_query_json_with(driver, dsn, sql)
+}
+
+
+fn db_query_one_json(path: string, sql: string): Result[string,Error] {
+    return __std_db_query_one_json(path, sql)
+}
+
+
+fn db_query_one_json_with(driver: string, dsn: string, sql: string): Result[string,Error] {
+    return __std_db_query_one_json_with(driver, dsn, sql)
+}
+
+
+fn db_exec_returning_id(path: string, sql: string): Result[int,Error] {
+    return __std_db_exec_returning_id(path, sql)
+}
+
+
+fn db_exec_returning_id_with(driver: string, dsn: string, sql: string): Result[int,Error] {
+    return __std_db_exec_returning_id_with(driver, dsn, sql)
+}
+
+
+fn db_exec_params(path: string, sql: string, params: string): Result[bool,Error] {
+    return __std_db_exec_params(path, sql, params)
+}
+
+
+fn db_exec_params_with(driver: string, dsn: string, sql: string, params: string): Result[bool,Error] {
+    return __std_db_exec_params_with(driver, dsn, sql, params)
+}
+
+
+fn db_query_params(path: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_params(path, sql, params)
+}
+
+
+fn db_query_params_with(driver: string, dsn: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_params_with(driver, dsn, sql, params)
+}
+
+
+fn db_query_json_params(path: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_json_params(path, sql, params)
+}
+
+
+fn db_query_json_params_with(driver: string, dsn: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_json_params_with(driver, dsn, sql, params)
+}
+
+
+fn db_query_one_json_params(path: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_one_json_params(path, sql, params)
+}
+
+
+fn db_query_one_json_params_with(driver: string, dsn: string, sql: string, params: string): Result[string,Error] {
+    return __std_db_query_one_json_params_with(driver, dsn, sql, params)
+}
+
+
+fn db_exec_returning_id_params(path: string, sql: string, params: string): Result[int,Error] {
+    return __std_db_exec_returning_id_params(path, sql, params)
+}
+
+
+fn db_exec_returning_id_params_with(driver: string, dsn: string, sql: string, params: string): Result[int,Error] {
+    return __std_db_exec_returning_id_params_with(driver, dsn, sql, params)
+}

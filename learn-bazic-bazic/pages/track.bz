@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_track(): string {
+    let body = section("Learning Track", p("Content coming soon."))
+    return page_layout("Learning Track", "track", body)
+}

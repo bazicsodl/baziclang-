@@ -1,0 +1,43 @@
+fn json_escape(s: string): string {
+    return __std_json_escape(s)
+}
+
+
+fn json_pretty(s: string): Result[string,Error] {
+    return __std_json_pretty(s)
+}
+
+
+fn json_validate(s: string): bool {
+    return __std_json_validate(s)
+}
+
+
+fn json_minify(s: string): Result[string,Error] {
+    return __std_json_minify(s)
+}
+
+
+fn json_get_raw(s: string, key: string): Result[string,Error] {
+    return __std_json_get_raw(s, key)
+}
+
+
+fn json_get_string(s: string, key: string): Result[string,Error] {
+    return __std_json_get_string(s, key)
+}
+
+
+fn json_get_bool(s: string, key: string): Result[bool,Error] {
+    return __std_json_get_bool(s, key)
+}
+
+
+fn json_get_int(s: string, key: string): Result[int,Error] {
+    return __std_json_get_int(s, key)
+}
+
+
+fn json_get_float(s: string, key: string): Result[float,Error] {
+    return __std_json_get_float(s, key)
+}

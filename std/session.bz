@@ -1,0 +1,18 @@
+fn session_init(path: string): Result[bool,Error] {
+    return __std_session_init(path)
+}
+
+
+fn session_put(path: string, token_hash: string, user_id: string, expires_at_rfc3339: string): Result[bool,Error] {
+    return __std_session_put(path, token_hash, user_id, expires_at_rfc3339)
+}
+
+
+fn session_get_user(path: string, token_hash: string): Result[string,Error] {
+    return __std_session_get_user(path, token_hash)
+}
+
+
+fn session_delete(path: string, token_hash: string): Result[bool,Error] {
+    return __std_session_delete(path, token_hash)
+}

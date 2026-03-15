@@ -1,0 +1,40 @@
+let utils = import("./utils")
+let store = import("./storage")
+
+fn show_menu() {
+    print("1. Add task")
+    print("2. Mark task done")
+    print("3. List tasks")
+    print("4. Exit")
+}
+
+while (true) {
+    utils.clear()
+    show_menu()
+
+    let choice = input("Choose: ")
+
+    if (choice == "1") {
+        let t = input("Task: ")
+        store.add_task(t)
+    }
+
+    else if (choice == "2") {
+        let i = input("Index: ")
+        store.mark_done(int(i))
+    }
+
+    else if (choice == "3") {
+        let arr = store.list_tasks()
+        let i = 0
+        while (i < len(arr)) {
+            utils.show_item(i, arr[i])
+            i = i + 1
+        }
+        input("\nPress ENTER...")
+    }
+
+    else if (choice == "4") {
+        break
+    }
+}

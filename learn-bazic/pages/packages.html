@@ -1,0 +1,58 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Packages ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Packages</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Packages</div>
+  <h1>Packages</h1>
+  <p>Bazic uses a local package manager for safe, reproducible builds.</p>
+
+  <h2>Initialize a project</h2>
+  <pre><code>.\bin\bazic.exe pkg init myapp
+</code></pre>
+
+  <h2>Add a local dependency</h2>
+  <pre><code>.\bin\bazic.exe pkg add stdutil .\examples\packages\stdutil
+.\bin\bazic.exe pkg sync
+</code></pre>
+
+  <h2>Verify integrity</h2>
+  <pre><code>.\bin\bazic.exe pkg verify
+.\bin\bazic.exe pkg sbom -o .\bazic.sbom.json
+</code></pre>
+
+  <h2>Import by alias</h2>
+  <pre><code>import "stdutil";
+</code></pre>
+
+  <div class="callout">
+    <strong>Security:</strong> Bazic verifies checksums and lockfile signatures on every build.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

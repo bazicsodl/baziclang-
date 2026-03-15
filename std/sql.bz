@@ -1,0 +1,120 @@
+fn sql_ident(s: string): string {
+    return replace(s, "\"", "\"\"")
+}
+
+
+fn sql_str(v: string): string {
+    return (("'" + replace(v, "'", "''")) + "'")
+}
+
+
+fn sql_bool(v: bool): string {
+    if v {
+        return "true"
+    }
+    return "false"
+}
+
+
+fn sql_eq(field: string, value: string): string {
+    return ((field + " = ") + value)
+}
+
+
+fn sql_and(a: string, b: string): string {
+    if (a == "") {
+        return b
+    }
+    if (b == "") {
+        return a
+    }
+    return ((a + " AND ") + b)
+}
+
+
+fn sql_or(a: string, b: string): string {
+    if (a == "") {
+        return b
+    }
+    if (b == "") {
+        return a
+    }
+    return ((a + " OR ") + b)
+}
+
+
+fn sql_where(cond: string): string {
+    if (cond == "") {
+        return ""
+    }
+    return (" where " + cond)
+}
+
+
+fn sql_in(field: string, csv: string): string {
+    if (csv == "") {
+        return ""
+    }
+    return (((field + " in (") + csv) + ")")
+}
+
+
+fn sql_like(field: string, pattern: string): string {
+    return ((field + " like ") + sql_str(pattern))
+}
+
+
+fn sql_value_string(v: string): string {
+    return sql_str(v)
+}
+
+
+fn sql_value_int(v: int): string {
+    return str(v)
+}
+
+
+fn sql_value_float(v: float): string {
+    return str(v)
+}
+
+
+fn sql_value_bool(v: bool): string {
+    return sql_bool(v)
+}
+
+
+fn sql_param_str(v: string): string {
+    return ("str:" + v)
+}
+
+
+fn sql_param_int(v: int): string {
+    return ("int:" + str(v))
+}
+
+
+fn sql_param_float(v: float): string {
+    return ("float:" + str(v))
+}
+
+
+fn sql_param_bool(v: bool): string {
+    if v {
+        return "bool:true"
+    }
+    return "bool:false"
+}
+
+
+fn sql_param_null(): string {
+    return "null:"
+}
+
+
+fn sql_params_add(params: string, value: string): string {
+    if (params == "") {
+        return value
+    }
+    return ((params + "\n") + value)
+}

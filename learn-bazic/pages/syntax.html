@@ -1,0 +1,78 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Syntax Map ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Syntax map</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Syntax</div>
+  <h1>Syntax Map</h1>
+  <p>This page shows how Bazic code is shaped. The rules below match the Bazic v1.0 spec.</p>
+
+  <h2>Keywords you will see</h2>
+  <p><code class="inline">fn let if else while return struct enum interface impl match import true false</code></p>
+
+  <h2>Comments</h2>
+  <pre><code>// line comment
+/* block comment */
+</code></pre>
+
+  <h2>Blocks</h2>
+  <pre><code>if condition {
+    // block body
+}
+</code></pre>
+
+  <h2>Declarations</h2>
+  <pre><code>import "std";
+
+struct User { name: string; age: int; }
+
+enum Status { Ok, Error }
+
+interface Named { fn name(): string; }
+
+impl User: Named;
+
+fn greet(name: string): string { return "Hi " + name; }
+
+let version = "1.0";
+</code></pre>
+
+  <h2>Expressions</h2>
+  <pre><code>let sum = 1 + 2 * 3;
+let ok = a > b && c != d;
+</code></pre>
+
+  <h2>Match expression</h2>
+  <pre><code>let label = match status {
+    Ok: "OK",
+    Error: "ERROR",
+};
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

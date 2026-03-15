@@ -1,0 +1,189 @@
+name: bazic-ci
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    env:
+      BAZIC_COMPAT_TARGET: v1.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Unit Tests
+        run: go test ./...
+
+      - name: Sync Packages
+        run: go run ./cmd/bazc pkg sync
+
+      - name: Verify Package Integrity
+        run: go run ./cmd/bazc pkg verify
+
+      - name: Formatter Check
+        run: go run ./cmd/bazc fmt --check ./examples
+
+      - name: Lint
+        run: go run ./cmd/bazc lint .
+
+      - name: Compiler Checks
+        run: |
+          go run ./cmd/bazc check ./examples/phase3/main.bz
+          go run ./cmd/bazc check ./examples/phase3/safety.bz
+          go run ./cmd/bazc check ./examples/phase3/match.bz
+          go run ./cmd/bazc check ./examples/phase3/match_expr.bz
+          go run ./cmd/bazc check --compat v1.0 ./examples/phase3/main.bz
+
+      - name: Bazic Source Tests
+        run: go run ./cmd/bazc test ./examples/phase3
+
+      - name: Conformance Suite
+        run: go run ./cmd/bazc test ./conformance
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Conformance Suite (LLVM)
+        run: go run ./cmd/bazc test ./conformance --backend llvm
+
+      - name: Benchmarks
+        run: go test ./internal/compiler -run ^$ -bench . -benchmem
+
+      - name: Web WASM Build
+        run: go run ./cmd/bazc build ./examples/web/app.bz --target wasm -o ./examples/web/app.wasm
+
+      - name: Desktop Build
+        run: go run ./cmd/bazc build ./examples/apps/desktop/main.bz -o ./examples/apps/desktop/app-ci
+
+      - name: Runtime Smoke Test
+        run: go run ./cmd/bazc run ./examples/phase3/main.bz
+
+      - name: Native Build Smoke Test
+        run: go run ./cmd/bazc build ./examples/phase3/main.bz -o ./examples/phase3/app-ci
+
+      - name: LLVM Build Smoke Test
+        run: go run ./cmd/bazc build ./examples/phase3/main.bz --backend llvm -o ./examples/phase3/app-llvm-ci
+
+      - name: LLVM Emit Smoke Test
+        run: go run ./cmd/bazc emit-llvm ./examples/phase3/main.bz -o ./examples/phase3/main.ll --check
+
+      - name: SBOM
+        run: go run ./cmd/bazc pkg sbom -o ./bazic.sbom.json
+
+      - name: Release Build (Linux)
+        run: ./tools/release/build.sh dist/release
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazic-release-linux
+          path: dist/release
+
+  runtime-bench-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cache Go Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Runtime Bench Gate (LLVM vs Go Ratio)
+        shell: pwsh
+        run: ./scripts/bench_gate.ps1 -Backend llvm
+
+  bench-baseline-capture:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install clang (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Capture Baseline
+        shell: pwsh
+        run: ./scripts/bench_baseline.ps1 -Platform ${{ runner.os }}
+
+  compat-matrix:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    env:
+      BAZIC_COMPAT_TARGET: v1.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Unit Tests
+        run: go test ./...
+
+      - name: Sync Packages
+        run: go run ./cmd/bazc pkg sync
+
+      - name: Verify Package Integrity
+        run: go run ./cmd/bazc pkg verify
+
+      - name: Lint
+        run: go run ./cmd/bazc lint .
+
+      - name: Conformance Suite (Go)
+        run: go run ./cmd/bazc test ./conformance --backend go
+
+      - name: Install clang (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        run: choco install -y llvm
+
+      - name: Conformance Suite (LLVM)
+        run: go run ./cmd/bazc test ./conformance --backend llvm
+
+      - name: Compat Check
+        run: go run ./cmd/bazc check --compat v1.0 ./examples/phase3/main.bz

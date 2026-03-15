@@ -1,0 +1,63 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Errors ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Errors and safety</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Errors</div>
+  <h1>Errors, Option, Result</h1>
+  <p>Bazic does not allow <code class="inline">nil</code>. Instead you use safe types.</p>
+
+  <h2>Option</h2>
+  <pre><code>fn find_name(): Option[string] {
+    return some("Ada");
+}
+
+let name = find_name();
+let value = unwrap_or(name, "unknown");
+println(value);
+</code></pre>
+
+  <h2>Result</h2>
+  <pre><code>let res = parse_int("42");
+if res.is_ok {
+    println(str(res.value));
+} else {
+    println(res.err.message);
+}
+</code></pre>
+
+  <h2>Error values</h2>
+  <pre><code>let bad = err(0, Error{ message: "boom" });
+</code></pre>
+
+  <div class="callout">
+    <strong>Why it matters:</strong> you always know what can fail, and you handle it directly.
+  </div>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

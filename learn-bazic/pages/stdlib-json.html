@@ -1,0 +1,54 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Stdlib json ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Stdlib json</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Stdlib ? json</div>
+  <h1>std/json</h1>
+  <p>Validate and transform JSON strings.</p>
+
+  <h2>Validate</h2>
+  <pre><code>let ok = json_validate("{"a":1}");
+println(str(ok));
+</code></pre>
+
+  <h2>Pretty print</h2>
+  <pre><code>let res = json_pretty("{"a":1}");
+if res.is_ok { println(res.value); }
+</code></pre>
+
+  <h2>Read values</h2>
+  <pre><code>let name = json_get_string("{"name":"Ada"}", "name");
+if name.is_ok { println(name.value); }
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

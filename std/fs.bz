@@ -1,0 +1,28 @@
+fn fs_read_file(path: string): Result[string,Error] {
+    return __std_read_file(path)
+}
+
+
+fn fs_write_file(path: string, data: string): Result[bool,Error] {
+    return __std_write_file(path, data)
+}
+
+
+fn fs_exists(path: string): bool {
+    return __std_exists(path)
+}
+
+
+fn fs_mkdir_all(path: string): Result[bool,Error] {
+    return __std_mkdir_all(path)
+}
+
+
+fn fs_remove(path: string): Result[bool,Error] {
+    return __std_remove(path)
+}
+
+
+fn fs_list_dir(path: string): Result[string,Error] {
+    return __std_list_dir(path)
+}

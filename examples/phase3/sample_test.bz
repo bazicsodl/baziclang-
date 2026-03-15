@@ -1,0 +1,21 @@
+enum LocalRole { Guest, Admin }
+
+
+fn test_option_some_flag(): bool {
+    let x = some(7)
+    return x.is_some
+}
+
+
+fn test_match_expr_value(): bool {
+    let role: LocalRole = Admin
+    let label = match role { Guest: "guest", Admin: "admin" }
+    return (label == "admin")
+}
+
+
+fn test_assert_style(): void {
+    let role: LocalRole = Guest
+    let label = match role { Guest: "guest", Admin: "admin" }
+    assert_msg((label == "guest"), "label should be guest")
+}

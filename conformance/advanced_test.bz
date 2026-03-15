@@ -1,0 +1,181 @@
+let GLOBAL_COUNT: int = 1
+
+
+let GLOBAL_ANY2: any = "ok"
+
+
+let GLOBAL_A: int = 2
+
+
+let GLOBAL_B: int = (GLOBAL_A + 3)
+
+
+let GLOBAL_ANY_STRUCT: any = Wrap { v: 3 }
+
+
+enum Role2 { Guest, Admin }
+
+
+struct User2 {
+    name: string
+}
+
+
+struct Wrap {
+    v: int
+}
+
+
+fn identity[T](x: T): T {
+    return x
+}
+
+
+fn test_global_mutation(): bool {
+    GLOBAL_COUNT = (GLOBAL_COUNT + 2)
+    return (GLOBAL_COUNT == 3)
+}
+
+
+fn test_global_any_string(): bool {
+    return (str(GLOBAL_ANY2) == "ok")
+}
+
+
+fn test_global_init_order(): bool {
+    return ((GLOBAL_A == 2) && (GLOBAL_B == 5))
+}
+
+
+fn test_global_any_struct(): bool {
+    return (len(str(GLOBAL_ANY_STRUCT)) > 0)
+}
+
+
+fn test_global_any_assign(): bool {
+    GLOBAL_ANY2 = 5
+    return (str(GLOBAL_ANY2) == "5")
+}
+
+
+fn test_any_boxing_and_eq(): bool {
+    let a: any = 7
+    let b: any = 7
+    let c: any = "7"
+    return (((a == b) && (a != c)) && (str(a) == "7"))
+}
+
+
+fn test_any_bool_float(): bool {
+    let b: any = true
+    let f: any = 3.25
+    return ((str(b) == "true") && contains(str(f), "3"))
+}
+
+
+fn test_any_mismatch_eq(): bool {
+    let a: any = 1
+    let b: any = true
+    return (a != b)
+}
+
+
+fn test_any_enum(): bool {
+    let e: any = Admin
+    return (str(e) == "1")
+}
+
+
+fn test_any_float_eq(): bool {
+    let a: any = 1.5
+    let b: any = 1.5
+    let c: any = 1.6
+    return ((a == b) && (a != c))
+}
+
+
+fn test_logic_complex(): bool {
+    let v = !(false || (true && false))
+    return (v == true)
+}
+
+
+fn test_match_expr_simple(): bool {
+    let r = Admin
+    let v = match r { Guest: 1, Admin: 2 }
+    return (v == 2)
+}
+
+
+fn test_match_expr_guarded(): bool {
+    let r = Guest
+    let v = match r { Guest if true: 3, Guest: 4, Admin: 5 }
+    return (v == 3)
+}
+
+
+fn test_match_stmt_guarded(): bool {
+    let r = Guest
+    let v = 0
+    match r {
+        Guest if false: {
+            v = 1
+        }
+        Guest: {
+            v = 2
+        }
+        Admin: {
+            v = 3
+        }
+    }
+    return (v == 2)
+}
+
+
+fn test_generic_identity_multi(): bool {
+    let a = identity(3)
+    let b = identity("x")
+    return ((a == 3) && (b == "x"))
+}
+
+
+fn test_struct_roundtrip(): bool {
+    let u = User2 { name: "Z" }
+    let v = User2 { name: u.name }
+    return (v.name == "Z")
+}
+
+
+fn test_bool_and_compare(): bool {
+    let x = (2 + (3 * 4))
+    let y = ((2 + 3) * 4)
+    return ((((x == 14) && (y == 20)) && (x < y)) && (x != y))
+}
+
+
+fn test_float_compare(): bool {
+    let a = 1.5
+    let b = 2.5
+    return (((a < b) && (b > a)) && (a != b))
+}
+
+
+fn test_string_compare_ge_le(): bool {
+    return (("b" >= "a") && ("a" <= "a"))
+}
+
+
+fn test_int_mod_and_div(): bool {
+    let a = (10 % 3)
+    let b = (10 / 3)
+    return ((a == 1) && (b == 3))
+}
+
+
+fn test_option_result_helpers(): bool {
+    let o1 = some(9)
+    let o2 = none(2)
+    let r1 = ok(7, Error { message: "" })
+    let r2 = err(0, Error { message: "x" })
+    return ((((unwrap_or(o1, 1) == 9) && (unwrap_or(o2, 1) == 1)) && (result_or(r1, 3) == 7)) && (result_or(r2, 3) == 3))
+}

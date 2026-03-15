@@ -1,0 +1,17 @@
+let app_name: string = "Bazic API"
+
+
+fn health(): string {
+    return "ok"
+}
+
+
+fn main(): void {
+    println(app_name)
+    let status = health()
+    if (status == "ok") {
+        println("service ready")
+    } else {
+        println("service down")
+    }
+}

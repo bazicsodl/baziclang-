@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_ui(): string {
+    let body = section("Ui", p("Content coming soon."))
+    return page_layout("Ui", "ui", body)
+}

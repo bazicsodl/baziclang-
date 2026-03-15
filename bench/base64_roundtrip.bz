@@ -1,0 +1,20 @@
+import "std"
+
+
+fn main(): void {
+    let sb = sb_new()
+    let i = 0
+    while (i < 20000) {
+        sb = sb_append(sb, "abcdefghijklmnopqrstuvwxyz0123456789")
+        i = (i + 1)
+    }
+    let s = sb_string(sb)
+    let start = time_unix_millis()
+    let enc = base64_encode(s)
+    let dec = base64_decode(enc)
+    let end = time_unix_millis()
+    if !dec.is_ok {
+        println(dec.err.message)
+    }
+    println(str((end - start)))
+}

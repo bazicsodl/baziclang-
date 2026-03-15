@@ -1,0 +1,16 @@
+let tasks = []
+
+export fn add_task(text) {
+    let obj = { text: text, done: false }
+    tasks.push(obj)
+}
+
+export fn mark_done(i) {
+    if (i < len(tasks)) {
+        tasks[i].done = true
+    }
+}
+
+export fn list_tasks() {
+    return tasks
+}

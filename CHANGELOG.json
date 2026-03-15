@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "released": "2026-03-12",
+  "changes": [
+    "Full-stack web stack with routing, auth, sessions, and helpers",
+    "DB stack with params, JSON encoding, migrations, and drivers",
+    "LLVM backend parity for HTTP routing, JSON getters, and auth stack",
+    "Model generator and OpenAPI output",
+    "SBOM + release packaging scripts"
+  ]
+}

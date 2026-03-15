@@ -1,0 +1,115 @@
+print("=== BAZIC MULTI-TOOL 2.0 ===")
+let seed = 98765
+
+fn rand() {
+  seed = seed * 1103515245 + 12345
+  return seed % 10000
+}
+
+fn calculator() {
+  print("CALCULATOR")
+  let expr = input("Enter calculation: ")
+  if (expr == "") {
+    print("No input")
+    return null
+  }
+  let result = eval(expr)
+  print(result)
+  return null
+}
+
+fn temperature_converter() {
+  print("TEMP CONVERTER")
+  print("1) C to F")
+  print("2) F to C")
+  let ch = input("Choose: ")
+  if (ch == "1") {
+    let c = eval(input("C: "))
+    let f = (c * 9 / 5) + 32
+    print(f)
+    return null
+  }
+  if (ch == "2") {
+    let f = eval(input("F: "))
+    let c = (f - 32) * 5 / 9
+    print(c)
+    return null
+  }
+  print("Invalid")
+  return null
+}
+
+fn password_generator() {
+  print("PASSWORD GEN")
+  let length = eval(input("Length: "))
+  if (length < 4) {
+    print("Too short")
+    return null
+  }
+  let i = 0
+  let result = ""
+  while (i < length) {
+    let r = rand() % 26
+    let letters = "abcdefghijklmnopqrstuvwxyz"
+    let ch = letters[r]
+    result = result + ch
+    i = i + 1
+  }
+  print(result)
+  return null
+}
+
+fn random_fact() {
+  let facts = ["Brain electricity","Honey lasts forever","Octopus: 3 hearts","Bananas are berries","Hot water freezes fast"]
+  let r = rand() % 5
+  print(facts[r])
+  return null
+}
+
+fn guessing_game() {
+  print("GUESS GAME (1-20)")
+  let secret = (rand() % 20) + 1
+  let attempts = 0
+  while (attempts < 5) {
+    let guess = eval(input("Guess: "))
+    attempts = attempts + 1
+    if (guess == secret) {
+      print("Correct")
+      return null
+    }
+    if (guess < secret) {
+      print("Low")
+    }
+    if (guess > secret) {
+      print("High")
+    }
+  }
+  print(secret)
+  return null
+}
+
+fn main() {
+  while (true) {
+    print("MENU: 1 Calc 2 Temp 3 Pass 4 Fact 5 Game 6 Exit")
+    let option = input("Choose: ")
+
+    if (option == "1") {
+      calculator()
+    } else if (option == "2") {
+      temperature_converter()
+    } else if (option == "3") {
+      password_generator()
+    } else if (option == "4") {
+      random_fact()
+    } else if (option == "5") {
+      guessing_game()
+    } else if (option == "6") {
+      print("Bye")
+      return null
+    } else {
+      print("Invalid")
+    }
+  }
+}
+
+main()

@@ -1,0 +1,15 @@
+fn factorial(n: int): int {
+    if (n <= 1) {
+        return 1
+    }
+    return (n * factorial((n - 1)))
+}
+
+
+fn main(): void {
+    let name = "Bazic"
+    println(("Hello from " + name))
+    let x: int = 6
+    let out: int = factorial(x)
+    println(out)
+}

@@ -1,0 +1,14 @@
+enum Role { Guest, Admin }
+
+
+fn main(): void {
+    let role: Role = Admin
+    match role {
+        Guest: {
+            println("guest")
+        }
+        Admin: {
+            println("admin")
+        }
+    }
+}

@@ -1,0 +1,102 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Quick Reference ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Quick reference</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Quick Reference</div>
+  <h1>Quick Reference</h1>
+  <p>Keep this page open while you code.</p>
+
+  <h2>Program skeleton</h2>
+  <pre><code>fn main(): void {
+    println("Hello");
+}
+</code></pre>
+
+  <h2>Variables</h2>
+  <pre><code>let count: int = 3;
+let name = "Ada"; // inferred type
+</code></pre>
+
+  <h2>Functions</h2>
+  <pre><code>fn add(a: int, b: int): int {
+    return a + b;
+}
+</code></pre>
+
+  <h2>Structs</h2>
+  <pre><code>struct User { name: string; age: int; }
+let u = User{ name: "Sam", age: 19 };
+</code></pre>
+
+  <h2>Enums + match</h2>
+  <pre><code>enum Status { Ok, Bad }
+let s = Status.Ok;
+match s {
+    Ok: { println("ok"); }
+    Bad: { println("bad"); }
+}
+</code></pre>
+
+  <h2>Match expression</h2>
+  <pre><code>let label = match s {
+    Ok: "OK",
+    Bad: "BAD",
+};
+</code></pre>
+
+  <h2>Loops</h2>
+  <pre><code>let i = 0;
+while i < 3 {
+    println(str(i));
+    i = i + 1;
+}
+</code></pre>
+
+  <h2>Imports</h2>
+  <pre><code>import "std";
+import "./helpers";
+</code></pre>
+
+  <h2>Option + Result</h2>
+  <pre><code>let res = parse_int("42");
+if res.is_ok { println(str(res.value)); }
+</code></pre>
+
+  <h2>Run, build, test</h2>
+  <pre><code>.\bin\bazic.exe run
+.\bin\bazic.exe build -o .\bin\app.exe
+.\bin\bazic.exe test .
+.\bin\bazic.exe lint .
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

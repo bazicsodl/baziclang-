@@ -1,0 +1,10 @@
+import "std"
+
+
+import "./layout.bz"
+
+
+fn page_stdlib_auth(): string {
+    let body = section("Stdlib: auth", p("Content coming soon."))
+    return page_layout("Stdlib: auth", "stdlib", body)
+}

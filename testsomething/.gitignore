@@ -1,0 +1,4 @@
+.bazic/
+*.exe
+*.wasm
+bin/

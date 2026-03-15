@@ -1,0 +1,60 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Testing ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Testing</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Testing</div>
+  <h1>Testing</h1>
+  <p>Bazic includes a simple test runner built into the CLI.</p>
+
+  <h2>Test file and naming</h2>
+  <pre><code>// file: math_test.bz
+fn test_add(): bool {
+    return add(2, 3) == 5;
+}
+</code></pre>
+
+  <h2>Run tests</h2>
+  <pre><code>.\bin\bazic.exe test .
+.\bin\bazic.exe test --filter add .
+.\bin\bazic.exe test --json .
+</code></pre>
+
+  <h2>Assertions</h2>
+  <pre><code>fn test_parse(): void {
+    let r = parse_int("10");
+    assert(r.is_ok);
+    assert_msg(r.value == 10, "expected 10");
+}
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

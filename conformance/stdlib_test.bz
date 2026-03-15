@@ -1,0 +1,393 @@
+import "std"
+
+
+fn test_base64_roundtrip(): bool {
+    let enc = base64_encode("hello")
+    let dec = base64_decode(enc)
+    return (dec.is_ok && (dec.value == "hello"))
+}
+
+
+fn test_base64_encode_known(): bool {
+    let enc = base64_encode("hi")
+    return (enc == "aGk=")
+}
+
+
+fn test_base64_decode_known(): bool {
+    let dec = base64_decode("aGk=")
+    return (dec.is_ok && (dec.value == "hi"))
+}
+
+
+fn test_base64_empty(): bool {
+    let enc = base64_encode("")
+    let dec = base64_decode("")
+    return (((enc == "") && dec.is_ok) && (dec.value == ""))
+}
+
+
+fn test_base64_invalid(): bool {
+    let dec = base64_decode("%%%")
+    return !dec.is_ok
+}
+
+
+fn test_base64_invalid_length(): bool {
+    let dec = base64_decode("abc")
+    return !dec.is_ok
+}
+
+
+fn test_base64_invalid_padding(): bool {
+    let dec = base64_decode("a===")
+    return !dec.is_ok
+}
+
+
+fn test_path_basename_dirname(): bool {
+    let base = path_basename("a/b.txt")
+    let dir = path_dirname("a/b.txt")
+    return ((base == "b.txt") && (dir == "a"))
+}
+
+
+fn test_path_join(): bool {
+    let joined = path_join("a", "b")
+    return (contains(joined, "a") && ends_with(joined, "b"))
+}
+
+
+fn test_path_basics(): bool {
+    let base = path_basename("/tmp/file.txt")
+    let dir = path_dirname("/tmp/file.txt")
+    let joined = path_join(dir, base)
+    return ends_with(joined, "file.txt")
+}
+
+
+fn test_http_status_ok(): bool {
+    return (http_status_ok(200) && !http_status_ok(404))
+}
+
+
+fn test_http_status_ok_more(): bool {
+    return ((http_status_ok(204) && !http_status_ok(302)) && !http_status_ok(500))
+}
+
+
+fn test_json_validate_minify(): bool {
+    let ok = json_validate("{\"a\": 1}")
+    if !ok {
+        return false
+    }
+    let min = json_minify("{\"a\": 1}")
+    return (min.is_ok && (min.value == "{\"a\":1}"))
+}
+
+
+fn test_json_validate_invalid(): bool {
+    return !json_validate("{\"a\":")
+}
+
+
+fn test_json_minify_invalid(): bool {
+    let res = json_minify("{\"a\":")
+    return !res.is_ok
+}
+
+
+fn test_json_pretty_smoke(): bool {
+    let res = json_pretty("{\"a\":1}")
+    return (res.is_ok && contains(res.value, "\n"))
+}
+
+
+fn test_json_escape(): bool {
+    let esc = json_escape("a\"b\nc")
+    return (esc == "a\\\"b\\nc")
+}
+
+
+fn test_json_escape_tabs(): bool {
+    let esc = json_escape("a\tb")
+    return (esc == "a\\tb")
+}
+
+
+fn test_json_escape_backslash(): bool {
+    let esc = json_escape("a\\b")
+    return (esc == "a\\\\b")
+}
+
+
+fn test_json_escape_quote(): bool {
+    let esc = json_escape("\"")
+    return (esc == "\\\"")
+}
+
+
+fn test_json_escape_control(): bool {
+    let esc = json_escape("\t")
+    return contains(esc, "\\t")
+}
+
+
+fn test_crypto_sha256_hex(): bool {
+    let h = crypto_sha256_hex("abc")
+    return (h == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+}
+
+
+fn test_crypto_sha256_hex_empty(): bool {
+    let h = crypto_sha256_hex("")
+    return (h == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+}
+
+
+fn test_crypto_random_hex_len(): bool {
+    let r = crypto_random_hex(8)
+    return (r.is_ok && (len(r.value) == 16))
+}
+
+
+fn test_crypto_random_hex_zero(): bool {
+    let r = crypto_random_hex(0)
+    return (r.is_ok && (r.value == ""))
+}
+
+
+fn test_crypto_random_hex_negative(): bool {
+    let r = crypto_random_hex(-1)
+    return (r.is_ok && (r.value == ""))
+}
+
+
+fn test_os_args_empty(): bool {
+    return (os_args() == "")
+}
+
+
+fn test_os_args_format(): bool {
+    let args = os_args()
+    if (args == "") {
+        return true
+    }
+    return (contains(args, "\n") || (len(args) > 0))
+}
+
+
+fn test_os_cwd_ok(): bool {
+    let res = os_cwd()
+    return (res.is_ok && (len(res.value) > 0))
+}
+
+
+fn test_os_chdir_roundtrip(): bool {
+    let cwd = os_cwd()
+    if !cwd.is_ok {
+        return false
+    }
+    let dir = "__bazic_tmp_cwd"
+    let mk = fs_mkdir_all(dir)
+    if !mk.is_ok {
+        return false
+    }
+    let ch = os_chdir(dir)
+    if !ch.is_ok {
+        let _ = fs_remove(dir)
+        return false
+    }
+    let cwd2 = os_cwd()
+    let back = os_chdir(cwd.value)
+    let _ = fs_remove(dir)
+    return ((cwd2.is_ok && back.is_ok) && ends_with(cwd2.value, dir))
+}
+
+
+fn test_os_temp_dir_ok(): bool {
+    let res = os_temp_dir()
+    return (res.is_ok && (len(res.value) > 0))
+}
+
+
+fn test_os_env_list_ok(): bool {
+    let res = os_env_list()
+    return res.is_ok
+}
+
+
+fn test_os_getenv_empty_key(): bool {
+    let res = os_getenv("")
+    return !res.is_ok
+}
+
+
+fn test_os_getenv_missing(): bool {
+    let res = os_getenv("__BAZIC_MISSING_ENV__")
+    return !res.is_ok
+}
+
+
+fn test_os_exe_path_ok(): bool {
+    let res = os_exe_path()
+    return (res.is_ok && (len(res.value) > 0))
+}
+
+
+fn test_os_home_dir_ok(): bool {
+    let res = os_home_dir()
+    return (res.is_ok && (len(res.value) > 0))
+}
+
+
+fn test_io_read_all_empty(): bool {
+    let res = io_read_all()
+    return res.is_ok
+}
+
+
+fn test_string_builder(): bool {
+    let sb = sb_new()
+    let sb2 = sb_append(sb, "hi")
+    let sb3 = sb_append_line(sb2, "there")
+    return (sb_len(sb3) == len(sb_string(sb3)))
+}
+
+
+fn test_string_builder_clear(): bool {
+    let sb = sb_new()
+    let sb2 = sb_append(sb, "x")
+    let sb3 = sb_clear(sb2)
+    return ((sb_len(sb3) == 0) && (sb_string(sb3) == ""))
+}
+
+
+fn test_db_with_empty_driver(): bool {
+    let res = db_exec_with("", "", "select 1;")
+    return !res.is_ok
+}
+
+
+fn test_db_query_empty_driver(): bool {
+    let res = db_query_with("", "", "select 1;")
+    return !res.is_ok
+}
+
+
+fn test_time_now_format(): bool {
+    let now = time_now_rfc3339()
+    return ((len(now) > 0) && contains(now, "T"))
+}
+
+
+fn test_time_unix_millis(): bool {
+    let t = time_unix_millis()
+    return (t > 0)
+}
+
+
+fn test_time_sleep_ms(): bool {
+    time_sleep_ms(1)
+    return true
+}
+
+
+fn test_fs_exists_missing(): bool {
+    return !fs_exists("__bazic_missing__file__")
+}
+
+
+fn test_fs_read_write_remove(): bool {
+    let path = "__bazic_tmp_file.txt"
+    let w = fs_write_file(path, "hello")
+    if !w.is_ok {
+        return false
+    }
+    if !fs_exists(path) {
+        return false
+    }
+    let r = fs_read_file(path)
+    if (!r.is_ok || (r.value != "hello")) {
+        return false
+    }
+    let rm = fs_remove(path)
+    if !rm.is_ok {
+        return false
+    }
+    return !fs_exists(path)
+}
+
+
+fn test_fs_list_dir_ok(): bool {
+    let res = fs_list_dir(".")
+    return res.is_ok
+}
+
+
+fn test_fs_list_dir_missing(): bool {
+    let res = fs_list_dir("__bazic_missing_dir__")
+    return !res.is_ok
+}
+
+
+fn test_fs_read_missing(): bool {
+    let res = fs_read_file("__bazic_missing__file__")
+    return !res.is_ok
+}
+
+
+fn test_fs_mkdir_all_remove_dir(): bool {
+    let dir = "__bazic_tmp_dir"
+    let sub = path_join(dir, "sub")
+    let mk = fs_mkdir_all(sub)
+    if !mk.is_ok {
+        return false
+    }
+    if !fs_exists(sub) {
+        return false
+    }
+    let rmSub = fs_remove(sub)
+    if !rmSub.is_ok {
+        return false
+    }
+    let rmDir = fs_remove(dir)
+    if !rmDir.is_ok {
+        return false
+    }
+    return !fs_exists(dir)
+}
+
+
+fn test_parse_int_float(): bool {
+    let ok = parse_int("42")
+    if (!ok.is_ok || (ok.value != 42)) {
+        return false
+    }
+    let ok2 = parse_int("  5 ")
+    if (!ok2.is_ok || (ok2.value != 5)) {
+        return false
+    }
+    let neg = parse_int("-7")
+    if (!neg.is_ok || (neg.value != -7)) {
+        return false
+    }
+    let bad = parse_int("nope")
+    if bad.is_ok {
+        return false
+    }
+    let okf = parse_float("3.25")
+    if ((!okf.is_ok || (okf.value < 3.24)) || (okf.value > 3.26)) {
+        return false
+    }
+    let okf2 = parse_float("2")
+    if ((!okf2.is_ok || (okf2.value < 1.9)) || (okf2.value > 2.1)) {
+        return false
+    }
+    let negf = parse_float("-1.5")
+    if ((!negf.is_ok || (negf.value > -1.49)) || (negf.value < -1.51)) {
+        return false
+    }
+    let badf = parse_float("NaN nope")
+    return !badf.is_ok
+}

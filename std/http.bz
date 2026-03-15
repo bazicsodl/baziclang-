@@ -1,0 +1,196 @@
+struct HttpOptions {
+    connect_timeout_ms: int
+    timeout_ms: int
+    headers: string
+    user_agent: string
+    content_type: string
+    tls_insecure_skip_verify: bool
+    tls_ca_bundle_pem: string
+}
+
+
+struct HttpRequest {
+    method: string
+    url: string
+    body: string
+    opts: HttpOptions
+}
+
+
+struct HttpResponse {
+    status: int
+    headers: string
+    body: string
+}
+
+
+struct ServerRequest {
+    method: string
+    path: string
+    query: string
+    headers: string
+    body: string
+    remote_addr: string
+    cookies: string
+    params: string
+}
+
+
+struct ServerResponse {
+    status: int
+    headers: string
+    body: string
+}
+
+
+fn http_options_default(): HttpOptions {
+    return HttpOptions { connect_timeout_ms: 5000, content_type: "text/plain; charset=utf-8", headers: "", timeout_ms: 25000, tls_ca_bundle_pem: "", tls_insecure_skip_verify: false, user_agent: "Bazic/1.0" }
+}
+
+
+fn http_request(req: HttpRequest): Result[string,Error] {
+    return __std_http_request(req.method, req.url, req.body, req.opts.connect_timeout_ms, req.opts.timeout_ms, req.opts.headers, req.opts.user_agent, req.opts.content_type, req.opts.tls_insecure_skip_verify, req.opts.tls_ca_bundle_pem)
+}
+
+
+fn http_request_resp(req: HttpRequest): Result[HttpResponse,Error] {
+    return __std_http_request_resp(req.method, req.url, req.body, req.opts.connect_timeout_ms, req.opts.timeout_ms, req.opts.headers, req.opts.user_agent, req.opts.content_type, req.opts.tls_insecure_skip_verify, req.opts.tls_ca_bundle_pem)
+}
+
+
+fn http_get_status(url: string): Result[int,Error] {
+    let res = http_get_resp(url)
+    if res.is_ok {
+        return ok(res.value.status, Error { message: "" })
+    }
+    return err(0, res.err)
+}
+
+
+fn http_request_status(req: HttpRequest): Result[int,Error] {
+    let res = http_request_resp(req)
+    if res.is_ok {
+        return ok(res.value.status, Error { message: "" })
+    }
+    return err(0, res.err)
+}
+
+
+fn http_status_ok(status: int): bool {
+    return ((status >= 200) && (status < 300))
+}
+
+
+fn http_get_ok(url: string): Result[bool,Error] {
+    let res = http_get_status(url)
+    if res.is_ok {
+        return ok(http_status_ok(res.value), Error { message: "" })
+    }
+    return err(false, res.err)
+}
+
+
+fn http_get(url: string): Result[string,Error] {
+    let opts = http_options_default()
+    return __std_http_get_opts(url, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_get_raw(url: string): Result[HttpResponse,Error] {
+    return http_get_resp(url)
+}
+
+
+fn http_get_opts(url: string, opts: HttpOptions): Result[string,Error] {
+    return __std_http_get_opts(url, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_get_resp(url: string): Result[HttpResponse,Error] {
+    let opts = http_options_default()
+    return __std_http_get_opts_resp(url, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_get_opts_resp(url: string, opts: HttpOptions): Result[HttpResponse,Error] {
+    return __std_http_get_opts_resp(url, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_post(url: string, body: string): Result[string,Error] {
+    let opts = http_options_default()
+    return __std_http_post_opts(url, body, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.content_type, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_post_raw(url: string, body: string): Result[HttpResponse,Error] {
+    return http_post_resp(url, body)
+}
+
+
+fn http_post_opts(url: string, body: string, opts: HttpOptions): Result[string,Error] {
+    return __std_http_post_opts(url, body, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.content_type, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_post_resp(url: string, body: string): Result[HttpResponse,Error] {
+    let opts = http_options_default()
+    return __std_http_post_opts_resp(url, body, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.content_type, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_post_opts_resp(url: string, body: string, opts: HttpOptions): Result[HttpResponse,Error] {
+    return __std_http_post_opts_resp(url, body, opts.connect_timeout_ms, opts.timeout_ms, opts.headers, opts.user_agent, opts.content_type, opts.tls_insecure_skip_verify, opts.tls_ca_bundle_pem)
+}
+
+
+fn http_serve_text(addr: string, body: string): Result[bool,Error] {
+    return __std_http_serve_text(addr, body)
+}
+
+
+fn http_serve_json(addr: string, body: string): Result[bool,Error] {
+    let payload = (("{\"ok\":true,\"body\":\"" + json_escape(body)) + "\"}")
+    return __std_http_serve_text(addr, payload)
+}
+
+
+fn http_response(status: int, body: string, content_type: string): ServerResponse {
+    let headers = ((("Content-Type: " + content_type) + "\nContent-Length: ") + str(len(body)))
+    return ServerResponse { body: body, headers: headers, status: status }
+}
+
+
+fn http_text(status: int, body: string): ServerResponse {
+    return http_response(status, body, "text/plain; charset=utf-8")
+}
+
+
+fn http_json(status: int, json_body: string): ServerResponse {
+    return http_response(status, json_body, "application/json; charset=utf-8")
+}
+
+
+fn http_header_get(headers: string, key: string): string {
+    return __std_header_get(headers, key)
+}
+
+
+fn http_cookie_get(cookies: string, key: string): string {
+    return __std_kv_get(cookies, key)
+}
+
+
+fn http_params_get(params: string, key: string): string {
+    return __std_kv_get(params, key)
+}
+
+
+fn http_query_get(query: string, key: string): string {
+    return __std_query_get(query, key)
+}
+
+
+fn http_serve_app(addr: string): Result[bool,Error] {
+    return __std_http_serve_app(addr)
+}

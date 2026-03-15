@@ -1,0 +1,98 @@
+import "std"
+
+
+fn page_components(clicks: int, name: string): string {
+    let list = ui_list(ui_children_three(ui_list_item("Card + Badge"), ui_list_item("List items"), ui_list_item("Modal overlay")))
+    let card = ui_card("Components", list)
+    let tab = ui_state_get("tab", "overview")
+    let tab_bar = ui_tabs(ui_children_three(ui_tab_button("Overview", "tab-overview", (tab == "overview")), ui_tab_button("Stats", "tab-stats", (tab == "stats")), ui_tab_button("Alerts", "tab-alerts", (tab == "alerts"))))
+    let tab_copy = "Overview tab active."
+    if (tab == "stats") {
+        tab_copy = "Stats tab active."
+    }
+    if (tab == "alerts") {
+        tab_copy = "Alerts tab active."
+    }
+    let tab_card = ui_card("Tabs", ui_element("div", ui_props("", "stack"), ui_children_two(tab_bar, ui_p(tab_copy))))
+    let sort = ui_state_get("sort", "")
+    let sort_dir = ui_state_get("sort.dir", "asc")
+    let sort2_dir = ui_state_get("sort2.dir", "asc")
+    let status_dir = ""
+    if ((sort == "status") || (sort == "latency+status")) {
+        status_dir = sort2_dir
+    }
+    let latency_dir = ""
+    if ((sort == "latency") || (sort == "latency+status")) {
+        latency_dir = sort_dir
+    }
+    let head = ui_table_row(ui_children_three(ui_table_head_cell("Name"), ui_table_head_cell_sort("Status", "sort-status", status_dir), ui_table_head_cell_sort("Latency", "sort-latency", latency_dir)))
+    let row1 = ui_table_row(ui_children_three(ui_table_cell("API"), ui_table_cell("Green"), ui_table_cell("120ms")))
+    let row2 = ui_table_row(ui_children_three(ui_table_cell("Cache"), ui_table_cell("Warm"), ui_table_cell("18ms")))
+    let row3 = ui_table_row(ui_children_three(ui_table_cell("Queue"), ui_table_cell("Draining"), ui_table_cell("340ms")))
+    let empty_on = (ui_state_get("table.empty", "false") == "true")
+    let body = ui_children_three(row1, row2, row3)
+    if ((sort == "latency") && (sort_dir == "asc")) {
+        body = ui_children_three(row2, row1, row3)
+    }
+    if ((sort == "latency") && (sort_dir == "desc")) {
+        body = ui_children_three(row3, row1, row2)
+    }
+    if ((sort == "status") && (sort2_dir == "asc")) {
+        body = ui_children_three(row3, row1, row2)
+    }
+    if ((sort == "status") && (sort2_dir == "desc")) {
+        body = ui_children_three(row2, row1, row3)
+    }
+    if ((sort == "latency+status") && (sort_dir == "asc")) {
+        body = ui_children_three(row2, row1, row3)
+    }
+    if ((sort == "latency+status") && (sort_dir == "desc")) {
+        body = ui_children_three(row3, row1, row2)
+    }
+    if empty_on {
+        body = ui_children_one(ui_table_row(ui_children_one(ui_table_cell_span("No results", 3))))
+    }
+    let table = ui_table(head, body)
+    let striped = ui_table_class(head, body, "striped")
+    let table_actions = ui_element("div", ui_props("", "row"), ui_children_two(ui_button("Toggle Empty", "table-empty", "ghost"), ui_button("Reset Sort", "table-sort-reset", "ghost")))
+    let empty = ui_empty("No results")
+    let table_card = ui_card("Table", ui_element("div", ui_props("", "stack"), ui_children_three(table_actions, table, striped)))
+    let toast_msg = ui_state_get("toast", "")
+    let toast_stack = ui_element("div", ui_props("", "toast hidden"), ui_children_one(ui_text("")))
+    if (toast_msg != "") {
+        let second = ui_state_get("toast.secondary", "")
+        if (second != "") {
+            toast_stack = ui_toast_stack(ui_children_two(ui_toast(toast_msg, "tone-accent"), ui_toast(second, "tone-light")))
+        } else {
+            toast_stack = ui_toast_stack(ui_children_one(ui_toast(toast_msg, "tone-accent")))
+        }
+    }
+    let toast_actions = ui_element("div", ui_props("", "row"), ui_children_two(ui_button("Show Toast", "toast-btn", "ghost"), ui_button("Clear", "toast-clear", "ghost")))
+    let toast_card = ui_card("Toast", ui_element("div", ui_props("", "stack"), ui_children_two(toast_actions, toast_stack)))
+    let stored = ui_store_get("note", "Type a note...")
+    let input = ui_input_value_aria("Note", "note", "", stored, "Note input")
+    let focus_btn = ui_element("button", ui_props_aria("focus-note", "ghost", "Focus note input"), ui_children_one(ui_text("Focus Input")))
+    let plan = ui_store_get("plan", "starter")
+    let opt1 = ui_option("starter", "Starter", (plan == "starter"))
+    let opt2 = ui_option("team", "Team", (plan == "team"))
+    let opt3 = ui_option("enterprise", "Enterprise", (plan == "enterprise"))
+    let select = ui_select("plan", "select", ui_children_three(opt1, opt2, opt3))
+    let menu_open = (ui_state_get("menu.open", "false") == "true")
+    let menu_pick = ui_state_get("menu.pick", "Starter")
+    let menu = ui_dropdown(menu_pick, "menu-toggle", menu_open, ui_children_three(ui_menu_item("Starter", "menu-starter", (menu_pick == "Starter")), ui_menu_item("Team", "menu-team", (menu_pick == "Team")), ui_menu_item("Enterprise", "menu-enterprise", (menu_pick == "Enterprise"))))
+    let opt_in = ui_checkbox("opt-in", "checkbox", (ui_state_get("opt-in", "false") == "true"))
+    let dark = ui_switch("dark-mode", (ui_state_get("dark-mode", "false") == "true"))
+    let volume = ui_range("volume", ui_state_int_get("volume", 30), 0, 100)
+    let form = ui_element("div", ui_props("", "stack"), ui_children_four(ui_form_row("Note", input), ui_form_row("Plan", select), ui_form_row("Opt-in", opt_in), ui_form_row("Volume", volume)))
+    let toggles = ui_element("div", ui_props("", "stack"), ui_children_two(ui_form_row("Dark mode", dark), focus_btn))
+    let store_card = ui_card("Store + Form", form)
+    let menu_card = ui_card("Dropdown", menu)
+    let toggle_card = ui_card("Switches", toggles)
+    let modal_body = ui_element("div", ui_props("", "stack"), ui_children_two(ui_p("Modal content rendered from Bazic UI."), ui_button("Okay", "btn", "ghost")))
+    let modal = ui_modal("Example Modal", modal_body, ((clicks % 2) == 1))
+    let row_a = ui_element("div", ui_props("", "stack"), ui_children_three(card, tab_card, table_card))
+    let row_b = ui_element("div", ui_props("", "stack"), ui_children_three(toast_card, store_card, toggle_card))
+    let row_c = ui_element("div", ui_props("", "stack"), ui_children_two(menu_card, modal))
+    let body = ui_element("div", ui_props("", "stack"), ui_children_three(row_a, row_b, row_c))
+    return ui_section("Components", body)
+}

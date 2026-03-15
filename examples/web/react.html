@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bazic Web Demo (React)</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <div class="badge">WASM</div>
+        <h1>Bazic Web Demo (React)</h1>
+        <p>Bazic UI JSON rendered by React adapter.</p>
+      </header>
+      <section class="panel">
+        <div class="row">
+          <button id="run">Run Bazic</button>
+          <button class="ghost" id="clear">Clear</button>
+          <span class="status" id="status">idle</span>
+        </div>
+        <pre id="output"></pre>
+      </section>
+      <section class="panel">
+        <h2>Bazic UI (React)</h2>
+        <div id="ui" class="ui-root"></div>
+      </section>
+    </main>
+    <script src="wasm_exec.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="react_adapter.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

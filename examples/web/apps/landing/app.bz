@@ -1,0 +1,48 @@
+import "std"
+
+
+fn landing_page(clicks: int): string {
+    let badge = ui_badge("NEW", "tone-accent")
+    let hero = ui_element("div", ui_props("", "stack"), ui_children_three(ui_element("h2", ui_props("", "section-title"), ui_children_one(ui_text("Build fast with Bazic UI"))), ui_p("Ship production-ready UI with a minimal DSL and WASM runtime."), ui_element("div", ui_props("", "row"), ui_children_two(ui_button("Get Started", "cta", "ghost"), ui_badge(("Clicks: " + str(clicks)), "tone-light")))))
+    let feature1 = ui_card("Fast Setup", ui_p("Start with `bazic ui init` and ship in minutes."))
+    let feature2 = ui_card("Composable", ui_p("Pages, components, and shared layout helpers."))
+    let feature3 = ui_card("Interop", ui_p("Use React/Vue adapters or render directly."))
+    let features = ui_element("div", ui_props("", "grid"), ui_children_three(feature1, feature2, feature3))
+    let quote = ui_card("Customer Story", ui_p("\"Bazic UI replaced 3 tools in our stack.\""))
+    let pricing = ui_card("Starter", ui_element("div", ui_props("", "stack"), ui_children_three(ui_p("$19 / month"), ui_p("Includes UI kit + CLI tooling."), ui_button("Choose Plan", "plan", "ghost"))))
+    let top = ui_element("div", ui_props("", "stack"), ui_children_three(badge, hero, features))
+    let bottom = ui_element("div", ui_props("", "stack"), ui_children_two(quote, pricing))
+    let body = ui_element("div", ui_props("", "stack"), ui_children_two(top, bottom))
+    return ui_section("Bazic UI Landing", body)
+}
+
+
+fn render_ui(clicks: int): void {
+    let nav = ui_element("nav", ui_props("nav", "nav"), ui_children_three(ui_nav_link("Overview", "nav-home", true), ui_nav_link("Docs", "nav-docs", false), ui_nav_link("Pricing", "nav-pricing", false)))
+    let root = ui_layout("Bazic UI", nav, landing_page(clicks))
+    let _ = ui_render(root)
+}
+
+
+fn main(): void {
+    let clicks = ui_state_int_get("cta", 0)
+    render_ui(clicks)
+    let i = 0
+    while (i < 40) {
+        let ev = ui_event_type()
+        let target = ui_event_target()
+        if ((ev == "click") && (target == "cta")) {
+            ui_event_clear()
+            clicks = (clicks + 1)
+            let _ = ui_state_int_set("cta", clicks)
+        }
+        if ((ev == "click") && (target == "plan")) {
+            ui_event_clear()
+            clicks = (clicks + 1)
+            let _ = ui_state_int_set("cta", clicks)
+        }
+        render_ui(clicks)
+        time_sleep_ms(ui_loop_delay_ms())
+        i = (i + 1)
+    }
+}

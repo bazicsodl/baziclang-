@@ -1,0 +1,38 @@
+fn os_args(): string {
+    return __std_args()
+}
+
+
+fn os_getenv(key: string): Result[string,Error] {
+    return __std_getenv(key)
+}
+
+
+fn os_cwd(): Result[string,Error] {
+    return __std_cwd()
+}
+
+
+fn os_chdir(path: string): Result[bool,Error] {
+    return __std_chdir(path)
+}
+
+
+fn os_env_list(): Result[string,Error] {
+    return __std_env_list()
+}
+
+
+fn os_temp_dir(): Result[string,Error] {
+    return __std_temp_dir()
+}
+
+
+fn os_exe_path(): Result[string,Error] {
+    return __std_exe_path()
+}
+
+
+fn os_home_dir(): Result[string,Error] {
+    return __std_home_dir()
+}

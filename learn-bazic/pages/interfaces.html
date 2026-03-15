@@ -1,0 +1,57 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Interfaces ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Interfaces</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+  <a href="web.html">Web</a>
+  <a href="ui.html">UI</a>
+  <a href="tooling.html">Tooling</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Interfaces</div>
+  <h1>Interfaces</h1>
+  <p>Interfaces describe behavior. A struct can claim it supports that behavior with <code class="inline">impl</code>.</p>
+
+  <h2>Define an interface</h2>
+  <pre><code>interface Named {
+    fn name(): string;
+}
+</code></pre>
+
+  <h2>Implement it</h2>
+  <pre><code>struct User { name: string; }
+impl User: Named;
+</code></pre>
+
+  <h2>Method call sugar</h2>
+  <p>Calling <code class="inline">user.name()</code> is sugar for a function named <code class="inline">User_name(user)</code>.</p>
+  <pre><code>fn User_name(u: User): string { return u.name; }
+let u = User{ name: "Ava" };
+println(u.name());
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

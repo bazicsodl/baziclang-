@@ -1,0 +1,11 @@
+import "std"
+
+
+fn page_about(clicks: int, name: string): string {
+    let intro = "Bazic UI is a minimal JSON UI DSL."
+    let meta = ("Clicks so far: " + str(clicks))
+    let who = ("Name: " + name)
+    let badges = ui_element("div", ui_props("", "row"), ui_children_three(ui_badge("WASM", "tone-dark"), ui_badge("UI", "tone-light"), ui_badge("V1", "tone-accent")))
+    let body = ui_element("div", ui_props("", "stack"), ui_children_four(ui_p(intro), ui_p(meta), ui_p(who), badges))
+    return ui_section("About", body)
+}

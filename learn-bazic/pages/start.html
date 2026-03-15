@@ -1,0 +1,88 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Start Here ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Start here</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Start Here</div>
+  <h1>Start Here</h1>
+  <p>Bazic is built to be friendly to beginners. This page gets you running today, even if you have never coded before.</p>
+
+  <div class="callout">
+    <strong>Promise:</strong> If you do one tiny lesson per day, you will be writing Bazic comfortably in a week.
+  </div>
+
+  <h2>Step 1: Install Bazic</h2>
+  <p>From the Bazic folder, run the installer once.</p>
+  <pre><code>cd C:\Users\Ipeh\Documents\baziclang
+.\tools\install.ps1
+.\bin\bazic.exe version
+</code></pre>
+  <p class="note">On macOS or Linux, use <code class="inline">./tools/install.sh</code>.</p>
+
+  <h2>Step 2: Make your first project</h2>
+  <pre><code>.\bin\bazic.exe new hello
+cd hello
+</code></pre>
+  <p>This creates a folder with <code class="inline">main.bz</code>.</p>
+
+  <h2>Step 3: Run it</h2>
+  <pre><code>.\bin\bazic.exe run
+</code></pre>
+
+  <h2>What a Bazic program looks like</h2>
+  <pre><code>fn main(): void {
+    println("Hello, Bazic!");
+}
+</code></pre>
+  <p>The program always starts in <code class="inline">main</code>. Every line ends with <code class="inline">;</code>.</p>
+
+  <h2>Build a real executable</h2>
+  <pre><code>.\bin\bazic.exe build -o .\bin\hello.exe
+</code></pre>
+
+  <h2>Daily plan</h2>
+  <ol class="list">
+    <li><a href="day1.html">Day 1</a> ? words and printing</li>
+    <li><a href="day2.html">Day 2</a> ? numbers and variables</li>
+    <li><a href="day3.html">Day 3</a> ? if and else</li>
+    <li><a href="day4.html">Day 4</a> ? loops</li>
+    <li><a href="day5.html">Day 5</a> ? functions</li>
+    <li><a href="day6.html">Day 6</a> ? strings and files</li>
+    <li><a href="day7.html">Day 7</a> ? mini app</li>
+  </ol>
+
+  <h2>Learning rules that keep you winning</h2>
+  <ul class="list">
+    <li>Write tiny programs. Small wins build real skill.</li>
+    <li>Run code after every small change.</li>
+    <li>Type code yourself. Copying does not build memory.</li>
+    <li>Ask ?what does this line do?? until every line makes sense.</li>
+  </ul>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

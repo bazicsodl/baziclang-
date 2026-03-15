@@ -1,0 +1,68 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Projects ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Projects</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+<div class="breadcrumb">Home ? Projects</div>
+<h1>Projects to build</h1>
+<p>These projects are small but real. Each one teaches a new part of the language.</p>
+
+<h2>1) CLI journal</h2>
+<ul class="list">
+  <li>Append text to a file.</li>
+  <li>Read and print all entries.</li>
+  <li>Use <code class="inline">time_now_rfc3339</code> for timestamps.</li>
+</ul>
+
+<h2>2) JSON formatter</h2>
+<ul class="list">
+  <li>Read a JSON file.</li>
+  <li>Validate it with <code class="inline">json_validate</code>.</li>
+  <li>Pretty-print with <code class="inline">json_pretty</code>.</li>
+</ul>
+
+<h2>3) Mini web server</h2>
+<ul class="list">
+  <li>Use <code class="inline">http_serve_text</code> for a hello route.</li>
+  <li>Serve JSON with <code class="inline">http_serve_json</code>.</li>
+</ul>
+
+<h2>4) Notes app with SQLite</h2>
+<ul class="list">
+  <li>Create a table with <code class="inline">db_exec</code>.</li>
+  <li>Insert a note and list all notes.</li>
+</ul>
+
+<h2>5) Tiny UI app (WASM)</h2>
+<ul class="list">
+  <li>Create a UI project with <code class="inline">bazic ui init</code>.</li>
+  <li>Build a counter with <code class="inline">ui_button</code> and state.</li>
+</ul>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>

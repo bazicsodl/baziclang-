@@ -1,0 +1,22 @@
+import "std"
+
+
+fn test_json_escape(): void {
+    let s = json_escape("hi")
+    assert((s == "hi"))
+}
+
+
+fn test_collections_builder(): void {
+    let sb = sb_append_line(sb_append(sb_new(), "a"), "b")
+    let out = sb_string(sb)
+    assert((out == "ab\n"))
+    assert((sb_len(sb) == 4))
+}
+
+
+fn test_crypto_hash(): void {
+    let h = crypto_sha256_hex("bazic")
+    assert((len(h) == 64))
+    assert(contains(h, ""))
+}

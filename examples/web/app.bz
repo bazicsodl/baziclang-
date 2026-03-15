@@ -1,0 +1,303 @@
+import "std"
+
+
+import "./pages/home.bz"
+
+
+import "./pages/about.bz"
+
+
+import "./pages/components.bz"
+
+
+import "./apps/dashboard/app.bz"
+
+
+import "./apps/form/app.bz"
+
+
+fn render_page(page: string, clicks: int, name: string): string {
+    if (page == "about") {
+        return page_about(clicks, name)
+    }
+    if (page == "components") {
+        return page_components(clicks, name)
+    }
+    if (page == "dashboard") {
+        return dashboard_page(clicks, name)
+    }
+    if (page == "form") {
+        return form_page(clicks, name)
+    }
+    return page_home(clicks, name)
+}
+
+
+fn render_ui(page: string, clicks: int, name: string): void {
+    let nav = ui_element("nav", ui_props("nav", "nav"), ui_children_four(ui_nav_link("Home", "nav-home", (page == "home")), ui_nav_link("About", "nav-about", (page == "about")), ui_nav_link("Components", "nav-components", (page == "components")), ui_nav_link("Dashboard", "nav-dashboard", (page == "dashboard"))))
+    let nav2 = ui_element("nav", ui_props("nav", "nav"), ui_children_one(ui_nav_link("Form", "nav-form", (page == "form"))))
+    let hero = ui_element("div", ui_props("", "hero"), ui_children_two(ui_button("Click Me", "btn", "ghost"), ui_bind_input("name", "Type your name", "name")))
+    let status = ui_p(("Clicks: " + str(clicks)))
+    let content = ui_element("div", ui_props("", "content"), ui_children_four(nav, nav2, hero, status))
+    let body = ui_element("div", ui_props("", "content"), ui_children_two(content, render_page(page, clicks, name)))
+    let root = ui_layout("Bazic UI (WASM)", nav, body)
+    let _ = ui_render(root)
+}
+
+
+fn main(): void {
+    println("Bazic WASM demo starting...")
+    println(("Now: " + time_now_rfc3339()))
+    println(("Random: " + crypto_random_hex(8).value))
+    println(("Args: " + os_args()))
+    let msg = os_getenv("BAZIC_MESSAGE")
+    if msg.is_ok {
+        println(("Env BAZIC_MESSAGE: " + msg.value))
+    }
+    let ts = os_getenv("BAZIC_TS")
+    if ts.is_ok {
+        println(("Env BAZIC_TS: " + ts.value))
+    }
+    let payload = web_get_json("payload")
+    if payload.is_ok {
+        println(("Web payload: " + payload.value))
+        let valid = json_validate(payload.value)
+        println(("Payload valid: " + str(valid)))
+    }
+    let clicks = ui_state_int_get("clicks", 0)
+    let page = ui_route_get("home")
+    let name = ui_state_get("name", "")
+    render_ui(page, clicks, name)
+    let i = 0
+    while (i < 40) {
+        let ev = ui_event_type()
+        let target = ui_event_target()
+        let val = ui_event_value()
+        if ((ev == "click") && (target == "btn")) {
+            clicks = (clicks + 1)
+            ui_event_clear()
+            let _ = ui_state_int_set("clicks", clicks)
+        }
+        if ((ev == "input") && (target == "name")) {
+            ui_event_clear()
+            name = val
+            let _ = ui_state_set("name", name)
+        }
+        if (ev == "nav") {
+            ui_event_clear()
+            if (val == "nav-about") {
+                page = "about"
+            }
+            if (val == "nav-components") {
+                page = "components"
+            }
+            if (val == "nav-dashboard") {
+                page = "dashboard"
+            }
+            if (val == "nav-form") {
+                page = "form"
+            }
+            if (val == "nav-home") {
+                page = "home"
+            }
+            let _ = ui_state_set("page", page)
+            let _ = ui_route_set(page)
+        }
+        if ((ev == "input") && (target == "note")) {
+            ui_event_clear()
+            let _ = ui_store_set("note", val)
+        }
+        if ((ev == "input") && (target == "plan")) {
+            ui_event_clear()
+            let _ = ui_store_set("plan", val)
+        }
+        if ((ev == "input") && (target == "opt-in")) {
+            ui_event_clear()
+            let _ = ui_state_set("opt-in", val)
+        }
+        if ((ev == "input") && (target == "dark-mode")) {
+            ui_event_clear()
+            let _ = ui_state_set("dark-mode", val)
+        }
+        if ((ev == "input") && (target == "volume")) {
+            ui_event_clear()
+            let _ = ui_state_set("volume", val)
+        }
+        if ((ev == "click") && (target == "tab-overview")) {
+            ui_event_clear()
+            let _ = ui_state_set("tab", "overview")
+        }
+        if ((ev == "click") && (target == "tab-stats")) {
+            ui_event_clear()
+            let _ = ui_state_set("tab", "stats")
+        }
+        if ((ev == "click") && (target == "tab-alerts")) {
+            ui_event_clear()
+            let _ = ui_state_set("tab", "alerts")
+        }
+        if ((ev == "click") && (target == "toast-btn")) {
+            ui_event_clear()
+            let primary = ui_state_get("toast", "")
+            if (primary == "") {
+                let _ = ui_state_set("toast", ("Saved at " + time_now_rfc3339()))
+                let _ = ui_state_set("toast.ts", str(time_unix_millis()))
+            } else {
+                let _ = ui_state_set("toast.secondary", ("Queued at " + time_now_rfc3339()))
+                let _ = ui_state_set("toast.secondary.ts", str(time_unix_millis()))
+            }
+        }
+        if ((ev == "click") && (target == "toast-clear")) {
+            ui_event_clear()
+            let _ = ui_state_set("toast", "")
+            let _ = ui_state_set("toast.secondary", "")
+            let _ = ui_state_set("toast.ts", "0")
+            let _ = ui_state_set("toast.secondary.ts", "0")
+        }
+        if ((ev == "click") && (target == "menu-toggle")) {
+            ui_event_clear()
+            let open = ui_state_get("menu.open", "false")
+            if (open == "true") {
+                let _ = ui_state_set("menu.open", "false")
+            } else {
+                let _ = ui_state_set("menu.open", "true")
+            }
+        }
+        if ((ev == "click") && (target == "menu-starter")) {
+            ui_event_clear()
+            let _ = ui_state_set("menu.pick", "Starter")
+            let _ = ui_state_set("menu.open", "false")
+        }
+        if ((ev == "click") && (target == "menu-team")) {
+            ui_event_clear()
+            let _ = ui_state_set("menu.pick", "Team")
+            let _ = ui_state_set("menu.open", "false")
+        }
+        if ((ev == "click") && (target == "menu-enterprise")) {
+            ui_event_clear()
+            let _ = ui_state_set("menu.pick", "Enterprise")
+            let _ = ui_state_set("menu.open", "false")
+        }
+        if ((ev == "click") && (target == "table-empty")) {
+            ui_event_clear()
+            let on = ui_state_get("table.empty", "false")
+            if (on == "true") {
+                let _ = ui_state_set("table.empty", "false")
+            } else {
+                let _ = ui_state_set("table.empty", "true")
+            }
+        }
+        if ((ev == "click") && (target == "table-sort-reset")) {
+            ui_event_clear()
+            let _ = ui_state_set("sort", "")
+            let _ = ui_state_set("sort.dir", "asc")
+            let _ = ui_state_set("sort2.dir", "asc")
+        }
+        if ((ev == "click") && (target == "sort-latency")) {
+            ui_event_clear()
+            let current = ui_state_get("sort", "")
+            let dir = ui_state_get("sort.dir", "asc")
+            if (current == "latency+status") {
+                if (dir == "asc") {
+                    let _ = ui_state_set("sort.dir", "desc")
+                } else {
+                    let _ = ui_state_set("sort.dir", "asc")
+                }
+            } else {
+                if (current != "latency") {
+                    let _ = ui_state_set("sort", "latency")
+                    let _ = ui_state_set("sort.dir", "asc")
+                } else {
+                    if (dir == "asc") {
+                        let _ = ui_state_set("sort.dir", "desc")
+                    } else {
+                        let _ = ui_state_set("sort.dir", "asc")
+                    }
+                }
+            }
+        }
+        if ((ev == "click") && (target == "sort-status")) {
+            ui_event_clear()
+            let current = ui_state_get("sort", "")
+            let dir2 = ui_state_get("sort2.dir", "asc")
+            if (current == "latency") {
+                let _ = ui_state_set("sort", "latency+status")
+                let _ = ui_state_set("sort2.dir", "asc")
+            } else {
+                if ((current != "status") && (current != "latency+status")) {
+                    let _ = ui_state_set("sort", "status")
+                    let _ = ui_state_set("sort2.dir", "asc")
+                } else {
+                    if (dir2 == "asc") {
+                        let _ = ui_state_set("sort2.dir", "desc")
+                    } else {
+                        let _ = ui_state_set("sort2.dir", "asc")
+                    }
+                }
+            }
+        }
+        if ((ev == "input") && (target == "form-email")) {
+            ui_event_clear()
+            let _ = ui_store_set("form.email", val)
+        }
+        if ((ev == "input") && (target == "form-company")) {
+            ui_event_clear()
+            let _ = ui_store_set("form.company", val)
+        }
+        if ((ev == "click") && (target == "form-submit")) {
+            ui_event_clear()
+            let email = ui_store_get("form.email", "")
+            let status = "Invalid email"
+            if contains(email, "@") {
+                status = "Submitted"
+            }
+            let _ = ui_store_set("form.status", status)
+        }
+        if ((ev == "click") && (target == "focus-note")) {
+            ui_event_clear()
+            let _ = ui_focus_set("note")
+        }
+        if (ev == "route") {
+            ui_event_clear()
+            if (val != "") {
+                page = val
+            } else {
+                page = "home"
+            }
+            let _ = ui_state_set("page", page)
+        }
+        let now = time_unix_millis()
+        let primary = ui_state_get("toast", "")
+        let secondary = ui_state_get("toast.secondary", "")
+        let ts = ui_state_int_get("toast.ts", 0)
+        let ts2 = ui_state_int_get("toast.secondary.ts", 0)
+        if (((primary != "") && (ts > 0)) && ((now - ts) > 2500)) {
+            if (secondary != "") {
+                let _ = ui_state_set("toast", secondary)
+                let _ = ui_state_set("toast.secondary", "")
+                let _ = ui_state_set("toast.ts", str(ts2))
+                let _ = ui_state_set("toast.secondary.ts", "0")
+            } else {
+                let _ = ui_state_set("toast", "")
+                let _ = ui_state_set("toast.ts", "0")
+            }
+        }
+        if (((secondary != "") && (ts2 > 0)) && ((now - ts2) > 5000)) {
+            let _ = ui_state_set("toast.secondary", "")
+            let _ = ui_state_set("toast.secondary.ts", "0")
+        }
+        render_ui(page, clicks, name)
+        time_sleep_ms(ui_loop_delay_ms())
+        i = (i + 1)
+    }
+    let inline_payload = "{\"ok\":true,\"lang\":\"bazic\"}"
+    let min = json_minify(inline_payload)
+    if min.is_ok {
+        println(("Minified: " + min.value))
+    }
+    let enc = base64_encode("hello from bazic")
+    let dec = base64_decode(enc)
+    println(("Base64: " + enc))
+    if dec.is_ok {
+        println(("Decoded: " + dec.value))
+    }
+}

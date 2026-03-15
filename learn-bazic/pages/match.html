@@ -1,0 +1,64 @@
+<!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Match ? Bazic</title>
+      <link rel="stylesheet" href="../styles.css" />
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">bz</div>
+          <div>
+            <div class="title">Learn Bazic</div>
+            <div class="tag">Match</div>
+          </div>
+        </div>
+        <button class="menu" id="menuBtn" aria-label="Open menu">Menu</button>
+        <nav class="nav" id="nav">
+  <a href="../index.html">Home</a>
+  <a href="start.html">Start Here</a>
+  <a href="track.html">Learning Track</a>
+  <a href="reference.html">Reference</a>
+  <a href="stdlib.html">Stdlib</a>
+</nav>
+      </header>
+      <main class="page">
+
+  <div class="breadcrumb">Home ? Match</div>
+  <h1>Match</h1>
+  <p>Match is Bazic?s safe switch. It is exhaustive for enums.</p>
+
+  <h2>Match statement</h2>
+  <pre><code>enum State { On, Off }
+
+match state {
+    On: { println("on"); }
+    Off: { println("off"); }
+}
+</code></pre>
+
+  <h2>Match expression</h2>
+  <pre><code>let label = match state {
+    On: "ON",
+    Off: "OFF",
+};
+</code></pre>
+
+  <h2>Guards</h2>
+  <pre><code>enum Temp { Cold, Warm, Hot }
+
+let t = Temp.Warm;
+let msg = match t {
+    Cold if is_winter: "Cold winter",
+    Cold: "Cold",
+    Warm: "Warm",
+    Hot: "Hot",
+};
+</code></pre>
+
+      </main>
+      <script src="../script.js"></script>
+    </body>
+    </html>
