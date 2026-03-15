@@ -6,9 +6,9 @@ cd "$ROOT_DIR"
 OUT_DIR="${1:-./bin}"
 mkdir -p "$OUT_DIR"
 
-go build ./cmd/bazic -o "$OUT_DIR/bazic"
-go build ./cmd/bazc -o "$OUT_DIR/bazc"
-go build ./cmd/bazlsp -o "$OUT_DIR/bazlsp"
+go build -o "$OUT_DIR/bazic" ./cmd/bazic
+go build -o "$OUT_DIR/bazc" ./cmd/bazc
+go build -o "$OUT_DIR/bazlsp" ./cmd/bazlsp
 
 if [ -d "$ROOT_DIR/std" ]; then
   rm -rf "$OUT_DIR/std"

@@ -3,7 +3,6 @@ param(
 )
 
 $root = Split-Path -Parent $PSScriptRoot
-$root = Split-Path -Parent $root
 Set-Location $root
 
 New-Item -ItemType Directory -Force $OutDir | Out-Null
@@ -18,9 +17,12 @@ $runtimeOut = Join-Path $OutDir "runtime"
 $vsixSource = Join-Path $root "tools\\vscode\\baziclang-0.1.0.vsix"
 $vsixOut = Join-Path $OutDir "baziclang.vsix"
 
-go build .\cmd\bazic -o $bazic
-go build .\cmd\bazc -o $bazc
-go build .\cmd\bazlsp -o $bazlsp
+go build -o $bazic .\cmd\bazic
+if ($LASTEXITCODE -ne 0) { throw "build failed: bazic" }
+go build -o $bazc .\cmd\bazc
+if ($LASTEXITCODE -ne 0) { throw "build failed: bazc" }
+go build -o $bazlsp .\cmd\bazlsp
+if ($LASTEXITCODE -ne 0) { throw "build failed: bazlsp" }
 
 if (Test-Path $std) {
   if (Test-Path $stdOut) {
