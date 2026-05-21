@@ -23,6 +23,10 @@ $bazcBin = Join-Path ([System.IO.Path]::GetTempPath()) $bazcName
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bazcBin)) {
     throw "failed to build bench capture compiler binary"
 }
+& $bazcBin pkg sync 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "failed to sync packages for bench capture"
+}
 
 function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
