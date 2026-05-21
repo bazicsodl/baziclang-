@@ -5,6 +5,20 @@ on:
     branches:
       - "**"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_readiness:
+        description: Run release-readiness mode with strict benchmark baseline requirements
+        required: false
+        default: "false"
+      bench_iterations:
+        description: Benchmark iterations for baseline capture
+        required: false
+        default: "3"
+      require_all_bench_baselines:
+        description: Require committed Windows, Linux, and macOS baseline files during audit
+        required: false
+        default: "false"
 
 jobs:
   quality-gates:
@@ -60,11 +74,14 @@ jobs:
       - name: Benchmarks
         run: go test ./internal/compiler -run ^$ -bench . -benchmem
 
-      - name: Web WASM Build
-        run: go run ./cmd/bazc build ./examples/web/app.bz --target wasm -o ./examples/web/app.wasm
+      - name: Alpha Reference App CLI Build
+        run: go run ./cmd/bazc build ./examples/apps/cli/main.bz -o ./examples/apps/cli/app-ci
 
-      - name: Desktop Build
-        run: go run ./cmd/bazc build ./examples/apps/desktop/main.bz -o ./examples/apps/desktop/app-ci
+      - name: Alpha Reference App Service Build
+        run: go run ./cmd/bazc build ./examples/apps/service/main.bz -o ./examples/apps/service/app-ci
+
+      - name: Alpha Reference App Web WASM Build
+        run: go run ./cmd/bazc build ./examples/web/app.bz --target wasm -o ./examples/web/app.wasm
 
       - name: Runtime Smoke Test
         run: go run ./cmd/bazc run ./examples/phase3/main.bz
@@ -120,6 +137,21 @@ jobs:
         shell: pwsh
         run: ./scripts/bench_gate.ps1 -Backend llvm
 
+  bench-baseline-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit Committed Bench Baselines
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and ("${{ github.event.inputs.require_all_bench_baselines || 'false' }}" -eq "true" -or "${{ github.event.inputs.release_readiness || 'false' }}" -eq "true")) {
+            ./scripts/bench_audit.ps1 -RequireAll
+          } else {
+            ./scripts/bench_audit.ps1
+          }
+
   bench-baseline-capture:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
@@ -144,7 +176,15 @@ jobs:
 
       - name: Capture Baseline
         shell: pwsh
-        run: ./scripts/bench_baseline.ps1 -Platform ${{ runner.os }}
+        run: ./scripts/bench_baseline.ps1 -Platform ${{ runner.os }} -Iterations ${{ github.event.inputs.bench_iterations || '3' }}
+
+      - name: Upload Baseline Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline-${{ runner.os }}
+          path: |
+            bench/baseline.xml
+            bench/baseline.*.xml
 
   compat-matrix:
     runs-on: ${{ matrix.os }}
@@ -187,3 +227,20 @@ jobs:
 
       - name: Compat Check
         run: go run ./cmd/bazc check --compat v1.0 ./examples/phase3/main.bz
+
+  release-readiness:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_readiness == 'true' }}
+    needs:
+      - quality-gates
+      - runtime-bench-gate
+      - bench-baseline-audit
+      - compat-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm Release Readiness Gate Set
+        run: |
+          echo "Release-readiness workflow gates passed:"
+          echo "- quality-gates"
+          echo "- runtime-bench-gate"
+          echo "- bench-baseline-audit (strict)"
+          echo "- compat-matrix"

@@ -32,6 +32,10 @@ This document defines the release process for Bazic.
 9. Tag release: `vX.Y.Z`.
 10. Publish binaries and `bazic.lock.json` schema if changed.
 11. Publish SBOM and checksums.
+12. Audit benchmark baselines with `scripts/bench_audit.ps1`; if new CI captures were promoted, ensure `bench/baseline.xml` matches the intended platform snapshot.
+13. For a stable release-readiness run, dispatch the CI workflow with `release_readiness=true`.
+    - This turns on the strict benchmark baseline audit automatically.
+    - It only reports success after `quality-gates`, `runtime-bench-gate`, `bench-baseline-audit`, and `compat-matrix` all pass.
 
 ## Required artifacts
 - `bazc` binary (native + wasm toolchain support).

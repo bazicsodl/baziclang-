@@ -1,17 +1,23 @@
 # Bazic Language (AOT Compiler) - Phase 2
 
-Bazic is a compiled language project with a static type checker and native build pipeline.
+Bazic is a compiled language project with a static type checker, a Go-based release backend, and an experimental LLVM native backend.
 
 ## Production readiness
 See `PRODUCTION_READINESS.md` for the remaining steps to reach full production-grade readiness.
+See `ROADMAP.md` for the execution plan from prototype to public release.
+See `ALPHA_SCOPE.md` for the concrete alpha release contract and supported workflow.
+See `RELEASE_SCOPE.md` for the Bazic v1 release contract and backend policy.
+See `STDLIB_TIERS.md` for alpha stable-core vs experimental stdlib modules.
 See `LANGUAGE_SPEC.md` and `STABILITY_POLICY.md` for v1 behavior guarantees.
 See `STDLIB_SECURITY.md` for safe-usage notes across stdlib APIs.
 See `PERFORMANCE_PLAN.md` and `DISTRIBUTION_PLAN.md` for perf and release planning.
 See `BAZIC_UI_FRONTEND_V1.md` and `BAZIC_UI_TOOLKIT.md` for the Bazic UI frontend contract and workflow.
 
 ## Current capabilities
-- AOT compilation: `.bz` -> generated Go -> native binary/wasm
-- Multi-file modules via `import "...";`
+- AOT compilation: `.bz` -> generated Go -> native binary/wasm, with opt-in LLVM native builds
+- Multi-file modules via `import "...";` with optional explicit aliases: `import "util" as tools;`
+- Explicit top-of-file package declarations: `package main;` for entry files
+- Explicit package exports with `pub fn`, `pub const`, `pub let`, `pub struct`, `pub enum`, `pub interface`
 - `struct` declarations and struct literals
 - Generic structs: `struct Box[T] { ... }`
 - `enum` declarations
@@ -27,7 +33,8 @@ See `BAZIC_UI_FRONTEND_V1.md` and `BAZIC_UI_TOOLKIT.md` for the Bazic UI fronten
 - Error-flow helpers:
   - `unwrap_or(opt, fallback)`, `result_or(res, fallback)`
 - Stdlib MVP package (`import "std";`) with:
-  - `std/io`, `std/fs`, `std/time`, `std/json`, `std/http`, `std/crypto`, `std/base64`, `std/collections`, `std/db`, `std/os`, `std/path`
+  - Alpha stable core: `std/io`, `std/fs`, `std/time`, `std/json`, `std/http`, `std/crypto`, `std/base64`, `std/collections`, `std/os`, `std/path`
+  - Alpha experimental: `std/db`, `std/auth`, `std/jwt`, `std/session`, `std/desktop`, `std/web`, `std/ui`, `std/sql`, `std/validate`
   - `std/http` supports `HttpOptions` (timeouts, headers, user agent, content type, TLS options), `HttpRequest` (custom method), and `HttpResponse` (status, headers, body). Headers are newline-separated `"Key: Value"` entries.
 - Standard builtins available in every program:
   - `str`, `len`, `contains`, `starts_with`, `ends_with`, `to_upper`, `to_lower`, `trim_space`, `replace`, `repeat`
@@ -36,7 +43,7 @@ See `BAZIC_UI_FRONTEND_V1.md` and `BAZIC_UI_TOOLKIT.md` for the Bazic UI fronten
 - Static typing + local inference for `let` and `const`
 - Control flow: `if`, `else`, `while`, `return`
 - Semicolons optional; newlines terminate statements
-- LLVM backend (early): `emit-llvm` now emits real non-generic function signatures, arithmetic/comparison/logical return-expression IR, direct non-generic calls, control-flow lowering for `let`/assign/if/while/return, enum `match`, non-generic struct layout/field access, monomorphization for generic structs/functions, string ops/stdlib builtin lowering, and interface type lowering (with `print`/`println` lowered via `printf`)
+- LLVM backend (experimental): `emit-llvm` emits real non-generic function signatures, arithmetic/comparison/logical return-expression IR, direct non-generic calls, control-flow lowering for `let`/assign/if/while/return, enum `match`, non-generic struct layout/field access, monomorphization for generic structs/functions, string ops/stdlib builtin lowering, and interface type lowering (with `print`/`println` lowered via `printf`)
 
 ## CLI
 ```powershell
@@ -91,7 +98,8 @@ cd hello
 go run .\cmd\bazc\ version
 go run .\cmd\bazc\ run .\examples\phase3\main.bz
 ```
-Note: `bazic` defaults to the LLVM backend (requires `clang` on PATH). `bazic build --target wasm` (or building a web target under `examples/web`) automatically switches to the Go backend; otherwise use `--backend go` explicitly.
+Note: `bazic` defaults to the Go backend. Use `--backend llvm` for opt-in experimental native LLVM builds. `bazic build --target wasm` (or building a web target under `examples/web`) uses the Go backend.
+Note: Bazic is currently on an alpha release track. Treat the Go backend plus the Tier 1 stdlib in `STDLIB_TIERS.md` as the supported path.
 Note: LLVM builds look for `runtime/bazic_runtime.c` in the project root, or under `BAZIC_HOME/runtime`, or next to the Bazic install.
 Note: `bazic new`/`bazic init` auto-add the stdlib if `BAZIC_STDLIB` or `BAZIC_HOME` is set, or if a `std` directory is adjacent to the `bazic` binary.
 Tip: `bazic doctor` reports toolchain and stdlib status.
@@ -127,6 +135,7 @@ This creates:
 Then import packages by alias:
 ```bazic
 import "stdutil";
+import "stdutil" as util;
 ```
 
 Stdlib MVP uses alias `std`:
@@ -136,6 +145,11 @@ import "std";
 Security defaults:
 - Absolute imports are disallowed.
 - Alias imports are resolved from `.bazic/pkg/<alias>` only.
+- Entry files use `package main`; relative imports are treated as same-package files.
+- Imported packages must not declare `package main`.
+- Imported packages are package-bound: `import "util"` exposes `util.name`; `import "util" as tools` exposes `tools.name`.
+- Imported packages can opt into explicit visibility with `pub`; once they do, unmarked functions, globals, and types are package-private and bare imported names are not exposed.
+- Legacy imported packages with no `pub` declarations keep compatibility behavior and may still expose bare names when imported without an explicit alias.
 - `bazic.lock.json` checksums are verified at import resolution.
 - If package cache is tampered or stale, compiler asks for `bazc pkg sync`.
 - `bazc pkg verify` checks manifest/lock/cache consistency for CI/release gates.
@@ -159,8 +173,8 @@ Security defaults:
 - Import cycles are rejected with explicit cycle chains in diagnostics.
 
 ## Project layout
-- `cmd/bazic` default CLI (LLVM backend by default)
-- `cmd/bazc` compiler CLI (Go backend by default)
+- `cmd/bazic` default user CLI (Go backend by default)
+- `cmd/bazc` compiler/developer CLI (Go backend by default)
 - `cmd/bazlsp` Bazic language server (LSP)
 - `internal/lexer` tokenizer
 - `internal/parser` parser
@@ -215,6 +229,7 @@ $env:BAZIC_RUN_CONFORMANCE=1; go test .\internal\\testrun -run ConformanceSuite
 - `SECURITY.md` for security policy.
 - `MIGRATIONS.md` for migration notes.
 - `BENCHMARKS.md` for compiler + runtime performance benchmarks (use `scripts/bench.ps1` for runtime).
+- `scripts/bench_baseline.ps1` and `scripts/bench_promote.ps1` for capturing and promoting per-platform runtime baselines.
 - `SAFETY.md` for Bazic safety model and `any` usage policy.
 - `GETTING_STARTED.md` for the shortest setup/run path.
 - `V1_GUIDE.md` for the v1 documentation structure.
@@ -250,4 +265,5 @@ See [examples/phase3/match.bz](./examples/phase3/match.bz) for exhaustive enum `
 See [examples/phase3/match_expr.bz](./examples/phase3/match_expr.bz) for expression-style `match`.
 See [examples/phase3/sample_test.bz](./examples/phase3/sample_test.bz) for `bazc test` conventions.
 See [std/README.md](./std/README.md) for stdlib MVP APIs and examples.
+See [STDLIB_TIERS.md](./STDLIB_TIERS.md) for the alpha stable-core vs experimental split.
 See [examples/apps/cli/main.bz](./examples/apps/cli/main.bz) and [examples/apps/service/main.bz](./examples/apps/service/main.bz) for stdlib-powered reference apps.

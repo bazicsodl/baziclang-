@@ -2,7 +2,8 @@ param(
     [ValidateSet("go","llvm")] [string]$Backend,
     [int]$ThresholdPercent = 20,
     [int]$Iterations = 3,
-    [ValidateSet("auto","baseline","ratio")] [string]$Mode = "auto"
+    [ValidateSet("auto","baseline","ratio")] [string]$Mode = "auto",
+    [ValidateSet("auto","windows","linux","macos")] [string]$Platform = "auto"
 )
 
 if (-not $Backend) {
@@ -74,9 +75,30 @@ $targets = @{
 $scriptPath = $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptPath
 $rootDir = Split-Path -Parent $rootDir
-$baselineXml = Join-Path $rootDir "bench\\baseline.xml"
+$baselinePlatformKey = $Platform
+$os = $env:OS
+if ($baselinePlatformKey -eq "auto") {
+    if ($os -and $os.ToLower() -like "*windows*") {
+        $baselinePlatformKey = "windows"
+    } elseif ($IsLinux) {
+        $baselinePlatformKey = "linux"
+    } elseif ($IsMacOS) {
+        $baselinePlatformKey = "macos"
+    } else {
+        $baselinePlatformKey = "unknown"
+    }
+}
+
+$baselineCandidates = @()
+if ($baselinePlatformKey -ne "unknown") {
+    $baselineCandidates += (Join-Path $rootDir ("bench\\baseline.{0}.xml" -f $baselinePlatformKey))
+}
+$baselineCandidates += (Join-Path $rootDir "bench\\baseline.xml")
 $baselinePlatform = $null
-if (Test-Path $baselineXml) {
+foreach ($baselineXml in $baselineCandidates) {
+    if (-not (Test-Path $baselineXml)) {
+        continue
+    }
     try {
         [xml]$doc = Get-Content -Raw $baselineXml -ErrorAction Stop
     } catch {
@@ -97,10 +119,10 @@ if (Test-Path $baselineXml) {
             if ($goNode.$k) { $baseline["go"][$k] = [int]$goNode.$k }
             if ($llvmNode.$k) { $baseline["llvm"][$k] = [int]$llvmNode.$k }
         }
+        break
     }
 }
 
-$os = $env:OS
 if (-not $os) { $os = "unknown" }
 $os = $os.ToLower()
 if ($Mode -eq "auto") {

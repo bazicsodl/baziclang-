@@ -4,21 +4,28 @@ param(
 )
 
 $benchFiles = @(
-    @{ Name = "string_concat"; Path = "bench\\string_concat.bz" },
-    @{ Name = "string_builder"; Path = "bench\\string_builder.bz" },
-    @{ Name = "json_validate"; Path = "bench\\json_validate.bz" },
-    @{ Name = "crypto_sha256"; Path = "bench\\crypto_sha256.bz" },
-    @{ Name = "parse_int_float"; Path = "bench\\parse_int_float.bz" },
-    @{ Name = "loop_arith"; Path = "bench\\loop_arith.bz" },
-    @{ Name = "match_hot"; Path = "bench\\match_hot.bz" },
-    @{ Name = "base64_roundtrip"; Path = "bench\\base64_roundtrip.bz" },
-    @{ Name = "jwt_sign_verify"; Path = "bench\\jwt_sign_verify.bz" }
+    @{ Name = "string_concat"; Path = (Join-Path "bench" "string_concat.bz") },
+    @{ Name = "string_builder"; Path = (Join-Path "bench" "string_builder.bz") },
+    @{ Name = "json_validate"; Path = (Join-Path "bench" "json_validate.bz") },
+    @{ Name = "crypto_sha256"; Path = (Join-Path "bench" "crypto_sha256.bz") },
+    @{ Name = "parse_int_float"; Path = (Join-Path "bench" "parse_int_float.bz") },
+    @{ Name = "loop_arith"; Path = (Join-Path "bench" "loop_arith.bz") },
+    @{ Name = "match_hot"; Path = (Join-Path "bench" "match_hot.bz") },
+    @{ Name = "base64_roundtrip"; Path = (Join-Path "bench" "base64_roundtrip.bz") },
+    @{ Name = "jwt_sign_verify"; Path = (Join-Path "bench" "jwt_sign_verify.bz") }
 )
+
+$bazcName = if ($IsWindows) { "bazc-bench.exe" } else { "bazc-bench" }
+$bazcBin = Join-Path ([System.IO.Path]::GetTempPath()) $bazcName
+& go build -buildvcs=false -o $bazcBin ./cmd/bazc 2>$null
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bazcBin)) {
+    throw "failed to build bench capture compiler binary"
+}
 
 function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
     for ($i = 0; $i -lt $iters; $i++) {
-        $output = & go run .\cmd\bazc\ run $path --backend $backend 2>$null
+        $output = & $bazcBin run $path --backend $backend 2>$null
         $timeMs = $output | Select-Object -First 1
         if ($timeMs -match '^[0-9]+$') {
             $val = [int]$timeMs
@@ -60,5 +67,10 @@ $baseline.AppendChild($llvmNode) | Out-Null
 $root.AppendChild($baseline) | Out-Null
 $doc.AppendChild($root) | Out-Null
 
-$doc.Save("bench\\baseline.xml")
-Write-Host "Saved bench\\baseline.xml"
+$benchDir = "bench"
+$compatPath = Join-Path $benchDir "baseline.xml"
+$platformPath = Join-Path $benchDir ("baseline.{0}.xml" -f $Platform)
+$doc.Save($compatPath)
+$doc.Save($platformPath)
+Write-Host ("Saved {0}" -f $compatPath)
+Write-Host "Saved $platformPath"

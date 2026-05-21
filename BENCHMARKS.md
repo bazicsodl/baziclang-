@@ -19,18 +19,40 @@ To gate regressions (default 3 iterations):
 .\scripts\bench_gate.ps1 -Backend go
 .\scripts\bench_gate.ps1 -Backend llvm
 ```
-Gate runs each benchmark multiple times and uses the fastest time to reduce noise.
-On non-Windows platforms, the gate automatically switches to **ratio mode** (LLVM vs Go) because the baseline is Windows-only.
 
-To record a fresh baseline (writes `bench/baseline.xml`):
+Gate runs each benchmark multiple times and uses the fastest time to reduce noise.
+The gate prefers `bench/baseline.<platform>.xml` for the current platform and falls back to `bench/baseline.xml`.
+If no matching platform baseline exists, non-Windows platforms automatically switch to **ratio mode** (LLVM vs Go).
+
+To record a fresh baseline:
 ```powershell
 .\scripts\bench_baseline.ps1 -Platform windows
 ```
 
-Linux/macOS can either run the PowerShell script with `pwsh` or add a new baseline
-entry manually if you prefer to keep separate per‑platform files.
+This writes:
+- `bench/baseline.xml`
+- `bench/baseline.windows.xml`
+
+Linux/macOS can run the same script with `-Platform linux` or `-Platform macos`
+to produce `bench/baseline.linux.xml` and `bench/baseline.macos.xml`.
 
 CI can capture baselines via the `bench-baseline-capture` workflow (manual dispatch).
+Promote a downloaded artifact with:
+```powershell
+.\scripts\bench_promote.ps1 -Platform windows -Source .\bench-baseline-Windows\baseline.windows.xml -UpdateCompatibilitySnapshot
+.\scripts\bench_promote.ps1 -Platform linux -Source .\bench-baseline-Linux\baseline.linux.xml
+.\scripts\bench_promote.ps1 -Platform macos -Source .\bench-baseline-macOS\baseline.macos.xml
+```
+
+Audit the committed baseline set with:
+```powershell
+.\scripts\bench_audit.ps1
+.\scripts\bench_audit.ps1 -RequireAll
+```
+
+The CI `bench-baseline-audit` job runs the non-strict audit on every change.
+For release-readiness checks, dispatch the workflow manually with `release_readiness=true`.
+That turns on the strict audit automatically and requires committed Windows, Linux, and macOS baseline files.
 
 Bench programs live in `bench/`:
 - `bench/string_concat.bz`
@@ -72,7 +94,9 @@ LLVM backend:
 - `parse_int_float`: 34 ms
 - `jwt_sign_verify`: 107 ms
 
-Baseline data is also stored in `bench/baseline.xml` for gating.
+Baseline data is stored in:
+- `bench/baseline.windows.xml` as the Windows platform baseline
+- `bench/baseline.xml` as the latest compatibility snapshot for gating fallback
 
 ## Notes
 - Benchmarks are deterministic and do not touch the network.

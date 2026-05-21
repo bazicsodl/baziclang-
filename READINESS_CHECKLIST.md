@@ -1,6 +1,8 @@
 # v1.0 Readiness Checklist
 
-This checklist tracks the final gates for v1.0.
+This checklist tracks the final gates for Bazic v1.0.
+
+Important: alpha and v1 are not the same thing. Items below should only be marked complete when they are enforced or verified by the real release workflow, not because a document exists.
 
 ## Language & Spec
 - [x] `LANGUAGE.md` marked stable (no Draft label)
@@ -17,9 +19,9 @@ This checklist tracks the final gates for v1.0.
 
 ## Performance
 - [ ] Bench baselines recorded for Windows, Linux, macOS
-  - [x] Windows baseline recorded (`bench/baseline.xml`)
-  - [ ] Linux baseline recorded (`bench/baseline.xml`)
-  - [ ] macOS baseline recorded (`bench/baseline.xml`)
+  - [x] Windows baseline recorded (`bench/baseline.windows.xml`)
+  - [ ] Linux baseline recorded (`bench/baseline.linux.xml`)
+  - [ ] macOS baseline recorded (`bench/baseline.macos.xml`)
 - [x] Regression gates enabled
 
 ## Safety
@@ -34,7 +36,8 @@ This checklist tracks the final gates for v1.0.
 - [x] `COMPATIBILITY_MATRIX.md` finalized
 
 ## Reference Apps
-- [x] CLI app documented
-- [x] Service app documented
-- [x] Desktop app documented
-- [x] Web/WASM demo documented
+- [x] Alpha-gated CLI app documented
+- [x] Alpha-gated service app documented
+- [x] Alpha-gated web/wasm demo documented
+- [x] Alpha-gated reference apps enforced in CI/release workflow
+- [x] Experimental demos clearly separated from the supported alpha contract
