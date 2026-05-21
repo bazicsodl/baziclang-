@@ -3,6 +3,8 @@ param(
     [int]$Iterations = 3
 )
 
+$platformKey = $Platform.ToLowerInvariant()
+
 $benchFiles = @(
     @{ Name = "string_concat"; Path = (Join-Path "bench" "string_concat.bz") },
     @{ Name = "string_builder"; Path = (Join-Path "bench" "string_builder.bz") },
@@ -45,7 +47,7 @@ foreach ($b in $benchFiles) {
 $doc = New-Object System.Xml.XmlDocument
 $root = $doc.CreateElement("benchmarks")
 $baseline = $doc.CreateElement("baseline")
-$baseline.SetAttribute("platform", $Platform)
+$baseline.SetAttribute("platform", $platformKey)
 $baseline.SetAttribute("threshold_percent", "40")
 
 $goNode = $doc.CreateElement("go")
@@ -69,8 +71,9 @@ $doc.AppendChild($root) | Out-Null
 
 $benchDir = "bench"
 $compatPath = Join-Path $benchDir "baseline.xml"
-$platformPath = Join-Path $benchDir ("baseline.{0}.xml" -f $Platform)
+$platformPath = Join-Path $benchDir ("baseline.{0}.xml" -f $platformKey)
 $doc.Save($compatPath)
 $doc.Save($platformPath)
 Write-Host ("Saved {0}" -f $compatPath)
 Write-Host "Saved $platformPath"
+exit 0
