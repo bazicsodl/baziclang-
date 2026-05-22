@@ -164,6 +164,9 @@ func isStdPath(path string) bool {
 	if strings.Contains(clean, sep+"std"+sep) {
 		return true
 	}
+	if strings.Contains(clean, sep+"stdlib_local"+sep) {
+		return true
+	}
 	if strings.Contains(clean, sep+".bazic"+sep+"pkg"+sep+"std"+sep) {
 		return true
 	}

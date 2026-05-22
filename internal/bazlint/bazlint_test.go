@@ -55,3 +55,25 @@ func TestLintSkipsStdInternalCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestLintSkipsStdLocalInternalCalls(t *testing.T) {
+	dir := t.TempDir()
+	stdDir := filepath.Join(dir, "learn-bazic-bazic", "stdlib_local")
+	if err := os.MkdirAll(stdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	src := `fn helper(): void { __std_read_file("x"); }`
+	path := filepath.Join(stdDir, "io.bz")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := Lint(dir)
+	if err != nil {
+		t.Fatalf("lint error: %v", err)
+	}
+	for _, iss := range issues {
+		if iss.Rule == "BL002" && strings.Contains(iss.File, string(filepath.Separator)+"stdlib_local"+string(filepath.Separator)) {
+			t.Fatalf("BL002 should be skipped in stdlib_local path, got: %+v", iss)
+		}
+	}
+}
