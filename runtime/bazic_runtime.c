@@ -50,8 +50,6 @@
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
-extern time_t timegm(struct tm *);
-extern void arc4random_buf(void *buf, size_t nbytes);
 #endif
 
 typedef struct {
@@ -873,6 +871,23 @@ char *__std_now_rfc3339(void) {
 static time_t bazic_timegm(struct tm *tm) {
 #ifdef _WIN32
 	return _mkgmtime(tm);
+#elif defined(__APPLE__)
+	char *saved_tz_copy = NULL;
+	char *saved_tz = getenv("TZ");
+	if (saved_tz) {
+		saved_tz_copy = bazic_strdup(saved_tz);
+	}
+	setenv("TZ", "UTC", 1);
+	tzset();
+	time_t out = mktime(tm);
+	if (saved_tz_copy) {
+		setenv("TZ", saved_tz_copy, 1);
+		free(saved_tz_copy);
+	} else {
+		unsetenv("TZ");
+	}
+	tzset();
+	return out;
 #else
 	return timegm(tm);
 #endif
@@ -4704,9 +4719,6 @@ static bool bazic_secure_random(uint8_t *buf, size_t bytes) {
 	}
 #ifdef _WIN32
 	return BCryptGenRandom(NULL, buf, (ULONG)bytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-	arc4random_buf(buf, bytes);
-	return true;
 #else
 	int fd = open("/dev/urandom", O_RDONLY);
 	if (fd < 0) {
