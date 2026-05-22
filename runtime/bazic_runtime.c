@@ -3,8 +3,8 @@
 #define _DARWIN_C_SOURCE
 #endif
 #elif !defined(_WIN32)
-#ifndef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 200112L
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE

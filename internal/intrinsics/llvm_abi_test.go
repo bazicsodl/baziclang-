@@ -8,6 +8,13 @@ import (
 	"baziclang/internal/ast"
 )
 
+func wantLLVMCompactBoolRetType() string {
+	if runtime.GOOS == "darwin" {
+		return "[2 x i64]"
+	}
+	return "{ i64, ptr }"
+}
+
 func TestIsLLVMResultStructReturnRecognizesLoweredResultStructs(t *testing.T) {
 	hasStruct := func(name string) bool {
 		return name == "Result__string__Error"
@@ -114,7 +121,11 @@ func TestClassifyLLVMCallABITracksNormalizedReturnTypeAndConvention(t *testing.T
 	if runtime.GOOS == "windows" {
 		wantBoolConvention = LLVMCallSRet
 	}
-	if abi.Convention != wantBoolConvention || abi.NormalizedRet != ast.Type("Result__bool__Error") || abi.LLVMRetType != "%Result__bool__Error" {
+	wantBoolRetType := "%Result__bool__Error"
+	if runtime.GOOS != "windows" {
+		wantBoolRetType = wantLLVMCompactBoolRetType()
+	}
+	if abi.Convention != wantBoolConvention || abi.NormalizedRet != ast.Type("Result__bool__Error") || abi.LLVMRetType != wantBoolRetType {
 		t.Fatalf("unexpected compact bool llvm call abi: %+v", abi)
 	}
 	abi, ok = ClassifyLLVMCallABI("len", ast.TypeInt, mapType, hasStruct)
@@ -332,6 +343,40 @@ func TestFormatLLVMIntrinsicDeclKeepsPlainReturnsForNonStructResults(t *testing.
 	}
 	if decl != "declare i8 @__std_exists(ptr)\n" {
 		t.Fatalf("unexpected plain intrinsic declaration: %q", decl)
+	}
+}
+
+func TestFormatLLVMIntrinsicDeclUsesCompactRegisterReturnForBoolResult(t *testing.T) {
+	spec := FunctionSpec{
+		Name:   "__std_write_file",
+		Ret:    ast.Type("Result__bool__Error"),
+		Params: []ast.Type{ast.TypeString, ast.TypeString},
+	}
+	mapType := func(t ast.Type) (string, bool) {
+		switch t {
+		case ast.TypeString:
+			return "ptr", true
+		case ast.Type("Result__bool__Error"):
+			return "%Result__bool__Error", true
+		default:
+			return "", false
+		}
+	}
+	decl, ok := FormatLLVMIntrinsicDecl(spec, mapType, func(name string) bool {
+		return name == "Result__bool__Error"
+	})
+	if !ok {
+		t.Fatalf("expected bool result declaration formatting to succeed")
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(decl, "declare void @__std_write_file(ptr sret(%Result__bool__Error), ptr, ptr)") {
+			t.Fatalf("expected windows sret bool intrinsic declaration, got %q", decl)
+		}
+		return
+	}
+	want := "declare " + wantLLVMCompactBoolRetType() + " @__std_write_file(ptr, ptr)\n"
+	if decl != want {
+		t.Fatalf("unexpected compact bool intrinsic declaration: got %q want %q", decl, want)
 	}
 }
 

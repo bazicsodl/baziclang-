@@ -125,6 +125,18 @@ func usesLLVMIntrinsicRegisterResult(ret ast.Type) bool {
 	return runtime.GOOS != "windows"
 }
 
+func llvmIntrinsicRegisterResultType(ret ast.Type) (string, bool) {
+	if !usesLLVMIntrinsicRegisterResult(ret) {
+		return "", false
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return "[2 x i64]", true
+	default:
+		return "{ i64, ptr }", true
+	}
+}
+
 func UsesLLVMIntrinsicSRet(callee string, ret ast.Type, hasStruct func(string) bool) bool {
 	return strings.HasPrefix(callee, "__std_") &&
 		IsLLVMResultStructReturn(ret, hasStruct) &&
@@ -142,9 +154,19 @@ func ClassifyLLVMCallConvention(callee string, ret ast.Type, hasStruct func(stri
 	}
 }
 
+func mapLLVMCallReturnType(callee string, ret ast.Type, mapType func(ast.Type) (string, bool), hasStruct func(string) bool) (string, bool) {
+	normalizedRet := NormalizeLLVMType(ret)
+	if strings.HasPrefix(callee, "__std_") {
+		if llvmType, ok := llvmIntrinsicRegisterResultType(normalizedRet); ok {
+			return llvmType, true
+		}
+	}
+	return mapType(normalizedRet)
+}
+
 func ClassifyLLVMCallABI(callee string, ret ast.Type, mapType func(ast.Type) (string, bool), hasStruct func(string) bool) (LLVMCallABI, bool) {
 	normalizedRet := NormalizeLLVMType(ret)
-	llvmRetType, ok := mapType(normalizedRet)
+	llvmRetType, ok := mapLLVMCallReturnType(callee, normalizedRet, mapType, hasStruct)
 	if !ok {
 		return LLVMCallABI{}, false
 	}
@@ -368,7 +390,7 @@ func FormatLLVMIntrinsicDecl(fn FunctionSpec, mapType func(ast.Type) (string, bo
 		}
 		return fmt.Sprintf("declare void @%s(%s)\n", fn.Name, strings.Join(params, ", ")), true
 	}
-	llvmRet, ok := mapType(fn.Ret)
+	llvmRet, ok := mapLLVMCallReturnType(fn.Name, fn.Ret, mapType, hasStruct)
 	if !ok {
 		return "", false
 	}

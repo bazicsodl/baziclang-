@@ -2304,9 +2304,24 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 		b.WriteString(loadCode)
 		return b.String(), tmp, loadType, true
 	case intrinsics.LLVMCallValue:
+		valueABI, err := ctx.abi().valueABIOrError(ret, "llvm backend: unsupported return type '%s' for '%s'", ret, st.Func)
+		if err != nil {
+			return "", "", ast.TypeInvalid, false
+		}
 		tmp := ctx.ir.nextTmp()
 		b.WriteString(fmt.Sprintf("  %s = call %s @%s(%s)\n", tmp, retType, st.Func, strings.Join(argParts, ", ")))
-		return b.String(), tmp, ret, true
+		if retType == valueABI.LLVMType {
+			return b.String(), tmp, ret, true
+		}
+		tmpPtr := ctx.ir.nextTmp()
+		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
+		b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", retType, tmp, tmpPtr))
+		loadCode, loadTmp, loadType, ok := ctx.emitLoadLLVMValue(tmpPtr, ret)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		b.WriteString(loadCode)
+		return b.String(), loadTmp, loadType, true
 	}
 	return "", "", ast.TypeInvalid, false
 }
