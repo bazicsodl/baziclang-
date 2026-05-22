@@ -2436,6 +2436,16 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			return "", "", ast.TypeInvalid, false
 		}
 		b.WriteString(loadCode)
+		if strings.HasPrefix(st.Func, "__std_") {
+			normCode, normValue, changed, ok := normalizeExternalStringValue(ctx, tmp, loadType)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			if changed {
+				b.WriteString(normCode)
+				tmp = normValue
+			}
+		}
 		return b.String(), tmp, loadType, true
 	case intrinsics.LLVMCallValue:
 		valueABI, err := ctx.abi().valueABIOrError(ret, "llvm backend: unsupported return type '%s' for '%s'", ret, st.Func)
@@ -2449,6 +2459,16 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			b.WriteString(fmt.Sprintf("  %s = zext i1 %s to i8\n", tmp8, tmp))
 			return b.String(), tmp8, ret, true
 		}
+		if strings.HasPrefix(st.Func, "__std_") && retType == valueABI.LLVMType {
+			normCode, normValue, changed, ok := normalizeExternalStringValue(ctx, tmp, ret)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			if changed {
+				b.WriteString(normCode)
+				return b.String(), normValue, ret, true
+			}
+		}
 		if retType == valueABI.LLVMType {
 			return b.String(), tmp, ret, true
 		}
@@ -2460,6 +2480,16 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			return "", "", ast.TypeInvalid, false
 		}
 		b.WriteString(loadCode)
+		if strings.HasPrefix(st.Func, "__std_") {
+			normCode, normValue, changed, ok := normalizeExternalStringValue(ctx, loadTmp, loadType)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			if changed {
+				b.WriteString(normCode)
+				loadTmp = normValue
+			}
+		}
 		return b.String(), loadTmp, loadType, true
 	}
 	return "", "", ast.TypeInvalid, false
@@ -3293,6 +3323,48 @@ func nonNullStringPtr(ctx *funcCtx, value string) (string, string, bool) {
 	code += fmt.Sprintf("  %s = icmp eq ptr %s, null\n", isNull, value)
 	code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, isNull, emptyPtr, value)
 	return code, tmp, true
+}
+
+func normalizeExternalStringValue(ctx *funcCtx, value string, t ast.Type) (string, string, bool, bool) {
+	normalized := normalizeLLVMType(t)
+	if normalized == ast.TypeString {
+		code, out, ok := nonNullStringPtr(ctx, value)
+		return code, out, true, ok
+	}
+
+	info, ok := ctx.structs.byName[string(normalized)]
+	if !ok {
+		return "", value, false, true
+	}
+	llvmType, ok := ctx.abi().runtimeType(normalized)
+	if !ok {
+		return "", "", false, false
+	}
+
+	current := value
+	code := ""
+	changed := false
+	for idx, field := range info.Fields {
+		fieldLLVMType, ok := ctx.abi().runtimeType(field.Type)
+		if !ok {
+			return "", "", false, false
+		}
+		fieldTmp := ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = extractvalue %s %s, %d\n", fieldTmp, llvmType, current, idx)
+		fieldCode, fieldValue, fieldChanged, ok := normalizeExternalStringValue(ctx, fieldTmp, field.Type)
+		if !ok {
+			return "", "", false, false
+		}
+		if !fieldChanged {
+			continue
+		}
+		changed = true
+		code += fieldCode
+		next := ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = insertvalue %s %s, %s %s, %d\n", next, llvmType, current, fieldLLVMType, fieldValue, idx)
+		current = next
+	}
+	return code, current, changed, true
 }
 
 func (p llvmBoolConvertPlan) emit() (string, string) {
