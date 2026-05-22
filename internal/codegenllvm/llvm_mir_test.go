@@ -176,6 +176,9 @@ func TestEmitValueStmtExprMIRLLVMUsesStructuredStmtForms(t *testing.T) {
 	if typ != ast.TypeString || value == "" || !strings.Contains(code, "switch i64 1") || !strings.Contains(code, "phi ptr") {
 		t.Fatalf("unexpected match-value stmt emission: code=%q value=%q typ=%s", code, value, typ)
 	}
+	if strings.Contains(code, "label %mir_match_expr_default") || !strings.Contains(code, "label %match_expr_default") {
+		t.Fatalf("expected synthetic match-value default label to stay local, got:\n%s", code)
+	}
 }
 
 func TestEmitValueStmtExprMIRLLVMRejectsNonValueStatements(t *testing.T) {

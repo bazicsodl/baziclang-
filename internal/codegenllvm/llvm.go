@@ -1889,7 +1889,7 @@ func (c *funcCtx) emitEnumSwitchDispatch(b *strings.Builder, subjVal string, sub
 		return nil, false
 	}
 	caseLabels := make([]string, 0, len(variants))
-	b.WriteString(fmt.Sprintf("  switch %s %s, label %%%s [\n", subjABI.LLVMType, subjVal, cfgLabelLLVM(defaultLabel)))
+	b.WriteString(fmt.Sprintf("  switch %s %s, label %%%s [\n", subjABI.LLVMType, subjVal, defaultLabel))
 	for _, variant := range variants {
 		lbl := c.ir.nextLabel(labelPrefix)
 		caseLabels = append(caseLabels, lbl)
@@ -2652,7 +2652,7 @@ func (p llvmTerminatorEmitPlan) emitMatch(b *strings.Builder) bool {
 	for _, g := range grouped {
 		variants = append(variants, g.Variant)
 	}
-	caseLabels, ok := p.ctx.emitEnumSwitchDispatch(b, subjVal, subjType, defaultLabel, variants, "match_term_case")
+	caseLabels, ok := p.ctx.emitEnumSwitchDispatch(b, subjVal, subjType, cfgLabelLLVM(defaultLabel), variants, "match_term_case")
 	if !ok {
 		return false
 	}
