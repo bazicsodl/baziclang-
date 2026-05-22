@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"baziclang/internal/bazfmt"
+	"baziclang/internal/diag"
+	"baziclang/internal/intrinsics"
 	"baziclang/internal/lexer"
 	"baziclang/internal/parser"
 	"baziclang/internal/sema"
@@ -106,9 +108,9 @@ type workspaceEdit struct {
 }
 
 type docSymbol struct {
-	Name  string   `json:"name"`
-	Kind  int      `json:"kind"`
-	Range lspRange `json:"range"`
+	Name           string   `json:"name"`
+	Kind           int      `json:"kind"`
+	Range          lspRange `json:"range"`
 	SelectionRange lspRange `json:"selectionRange"`
 }
 
@@ -140,11 +142,11 @@ func main() {
 					"completionProvider": map[string]any{
 						"resolveProvider": false,
 					},
-					"definitionProvider": true,
-					"renameProvider":     true,
-					"documentSymbolProvider": true,
-					"hoverProvider": true,
-					"codeActionProvider": true,
+					"definitionProvider":         true,
+					"renameProvider":             true,
+					"documentSymbolProvider":     true,
+					"hoverProvider":              true,
+					"codeActionProvider":         true,
 					"documentFormattingProvider": true,
 				},
 			}
@@ -202,67 +204,7 @@ func main() {
 				publishDiagnostics(params.TextDocument.URI, state.Text)
 			}
 		case "textDocument/completion":
-			items := []completionItem{
-				{Label: "fn", Kind: 14},
-				{Label: "let", Kind: 14},
-				{Label: "if", Kind: 14},
-				{Label: "else", Kind: 14},
-				{Label: "while", Kind: 14},
-				{Label: "match", Kind: 14},
-				{Label: "return", Kind: 14},
-				{Label: "struct", Kind: 14},
-				{Label: "enum", Kind: 14},
-				{Label: "interface", Kind: 14},
-				{Label: "impl", Kind: 14},
-				{Label: "import", Kind: 14},
-				{Label: "true", Kind: 12},
-				{Label: "false", Kind: 12},
-				{Label: "print", Kind: 3},
-				{Label: "println", Kind: 3},
-				{Label: "str", Kind: 3},
-				{Label: "len", Kind: 3},
-				{Label: "contains", Kind: 3},
-				{Label: "starts_with", Kind: 3},
-				{Label: "ends_with", Kind: 3},
-				{Label: "to_upper", Kind: 3},
-				{Label: "to_lower", Kind: 3},
-				{Label: "trim_space", Kind: 3},
-				{Label: "replace", Kind: 3},
-				{Label: "repeat", Kind: 3},
-				{Label: "parse_int", Kind: 3},
-				{Label: "parse_float", Kind: 3},
-				{Label: "some", Kind: 3},
-				{Label: "none", Kind: 3},
-				{Label: "ok", Kind: 3},
-				{Label: "err", Kind: 3},
-				{Label: "unwrap_or", Kind: 3},
-				{Label: "result_or", Kind: 3},
-				{Label: "ui_element", Kind: 3},
-				{Label: "ui_section", Kind: 3},
-				{Label: "ui_layout", Kind: 3},
-				{Label: "ui_render", Kind: 3},
-				{Label: "ui_event_type", Kind: 3},
-				{Label: "ui_event_target", Kind: 3},
-				{Label: "ui_event_value", Kind: 3},
-				{Label: "ui_event_clear", Kind: 3},
-				{Label: "ui_state_get", Kind: 3},
-				{Label: "ui_state_set", Kind: 3},
-				{Label: "ui_route_get", Kind: 3},
-				{Label: "ui_route_set", Kind: 3},
-				{Label: "ui_nav_link", Kind: 3},
-				{Label: "ui_button", Kind: 3},
-				{Label: "ui_input", Kind: 3},
-				{Label: "ui_bind_input", Kind: 3},
-				{Label: "ui_card", Kind: 3},
-				{Label: "ui_list", Kind: 3},
-				{Label: "ui_list_item", Kind: 3},
-				{Label: "ui_tabs", Kind: 3},
-				{Label: "ui_tab_button", Kind: 3},
-				{Label: "web_get_json", Kind: 3},
-				{Label: "web_set_json", Kind: 3},
-				{Label: "http_serve_app", Kind: 3},
-			}
-			writeResponse(req.ID, items)
+			writeResponse(req.ID, completionItemsForSurface())
 		case "textDocument/definition":
 			var params struct {
 				TextDocument struct {
@@ -428,12 +370,9 @@ func writeMessage(v any) {
 func publishDiagnostics(uri, text string) {
 	diags := []diagnostic{}
 	if err := checkText(uri, text); err != nil {
-		line, col := extractLineCol(err.Error())
+		rng := diagnosticRange(err)
 		diags = append(diags, diagnostic{
-			Range: lspRange{
-				Start: position{Line: line, Character: col},
-				End:   position{Line: line, Character: col},
-			},
+			Range:    rng,
 			Severity: 1,
 			Message:  err.Error(),
 			Source:   "bazic",
@@ -471,22 +410,23 @@ func checkText(uri, text string) error {
 	return nil
 }
 
-var atLineColPattern = regexp.MustCompile(`at (\d+):(\d+)`)
-
-func extractLineCol(msg string) (int, int) {
-	m := atLineColPattern.FindStringSubmatch(msg)
-	if len(m) != 3 {
-		return 0, 0
+func diagnosticRange(err error) lspRange {
+	derr, ok := diag.Extract(err)
+	if !ok || derr.Span.IsZero() {
+		return lspRange{}
 	}
-	line, _ := strconv.Atoi(m[1])
-	col, _ := strconv.Atoi(m[2])
-	if line > 0 {
-		line--
+	start := position{
+		Line:      max(0, derr.Span.Start.Line-1),
+		Character: max(0, derr.Span.Start.Col-1),
 	}
-	if col > 0 {
-		col--
+	end := position{
+		Line:      max(0, derr.Span.End.Line-1),
+		Character: max(0, derr.Span.End.Col-1),
 	}
-	return line, col
+	if end.Line < start.Line || (end.Line == start.Line && end.Character < start.Character) {
+		end = start
+	}
+	return lspRange{Start: start, End: end}
 }
 
 func wordAt(text string, pos position) string {
@@ -567,9 +507,9 @@ func indexDocSymbols(text string) []docSymbol {
 			End:   position{Line: endLine, Character: endCol},
 		}
 		out = append(out, docSymbol{
-			Name:  name,
-			Kind:  kind,
-			Range: rng,
+			Name:           name,
+			Kind:           kind,
+			Range:          rng,
 			SelectionRange: rng,
 		})
 	}
@@ -578,45 +518,72 @@ func indexDocSymbols(text string) []docSymbol {
 
 func hoverFor(word string) string {
 	switch word {
+	case "as":
+		return "Import alias binding."
+	case "const":
+		return "Immutable local or global binding."
 	case "fn":
 		return "Function declaration"
-	case "struct":
-		return "Struct declaration"
-	case "enum":
-		return "Enum declaration"
-	case "interface":
-		return "Interface declaration"
-	case "impl":
-		return "Interface implementation"
 	case "import":
 		return "Import declaration"
+	case "impl":
+		return "Interface implementation"
+	case "interface":
+		return "Interface declaration"
 	case "let":
 		return "Local or global binding"
 	case "match":
 		return "Exhaustive enum match"
-	case "print", "println":
-		return "Builtin output"
-	case "str":
-		return "Convert to string"
-	case "len":
-		return "Length of string"
-	case "contains", "starts_with", "ends_with":
-		return "String predicate"
-	case "to_upper", "to_lower", "trim_space", "replace", "repeat":
-		return "String transform"
-	case "parse_int":
-		return "Parse int: Result[int, Error]"
-	case "parse_float":
-		return "Parse float: Result[float, Error]"
-	case "some", "none", "ok", "err":
-		return "Option/Result helpers"
-	case "unwrap_or":
-		return "Option fallback"
-	case "result_or":
-		return "Result fallback"
+	case "nil":
+		return "Nil literal. Bazic currently rejects nil in safe code."
+	case "package":
+		return "Package declaration."
+	case "pub":
+		return "Export a top-level declaration from a package."
+	case "return":
+		return "Return from the current function."
+	case "struct":
+		return "Struct declaration"
+	case "enum":
+		return "Enum declaration"
+	case "true", "false":
+		return "Boolean literal."
+	case "while":
+		return "While loop."
 	default:
+		if spec, ok := intrinsics.LookupSurfaceFunction(word); ok {
+			return spec.Hover()
+		}
 		return ""
 	}
+}
+
+func completionItemsForSurface() []completionItem {
+	items := []completionItem{
+		{Label: "as", Kind: 14},
+		{Label: "const", Kind: 14},
+		{Label: "else", Kind: 14},
+		{Label: "enum", Kind: 14},
+		{Label: "false", Kind: 12},
+		{Label: "fn", Kind: 14},
+		{Label: "if", Kind: 14},
+		{Label: "impl", Kind: 14},
+		{Label: "import", Kind: 14},
+		{Label: "interface", Kind: 14},
+		{Label: "let", Kind: 14},
+		{Label: "match", Kind: 14},
+		{Label: "nil", Kind: 12},
+		{Label: "package", Kind: 14},
+		{Label: "pub", Kind: 14},
+		{Label: "return", Kind: 14},
+		{Label: "struct", Kind: 14},
+		{Label: "true", Kind: 12},
+		{Label: "while", Kind: 14},
+	}
+	for _, spec := range intrinsics.SurfaceFunctionSpecs() {
+		items = append(items, completionItem{Label: spec.Name, Kind: 3})
+	}
+	return items
 }
 
 func indexToLineCol(text string, idx int) (int, int) {
@@ -844,6 +811,13 @@ func documentEnd(text string) position {
 	}
 	last := len(lines) - 1
 	return position{Line: last, Character: len(lines[last])}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func formatText(text string) (string, error) {

@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"baziclang/internal/ast"
+	"baziclang/internal/diag"
 	"baziclang/internal/lexer"
+	"baziclang/internal/source"
 )
 
 type Parser struct {
@@ -21,6 +23,13 @@ func New(tokens []lexer.Token) *Parser {
 
 func (p *Parser) ParseProgram() (*ast.Program, error) {
 	prog := &ast.Program{}
+	if p.match(lexer.KwPackage) {
+		pkg, err := p.parsePackageDecl()
+		if err != nil {
+			return nil, err
+		}
+		prog.Package = pkg
+	}
 	for !p.check(lexer.EOF) {
 		for p.match(lexer.Semicolon) {
 		}
@@ -33,47 +42,96 @@ func (p *Parser) ParseProgram() (*ast.Program, error) {
 		}
 		prog.Decls = append(prog.Decls, decl)
 	}
+	if prog.Package != nil && len(prog.Decls) > 0 {
+		prog.NodeInfo = ast.NodeInfo{Range: source.Join(prog.Package.Span(), prog.Decls[len(prog.Decls)-1].Span())}
+	} else if prog.Package != nil {
+		prog.NodeInfo = ast.NodeInfo{Range: prog.Package.Span()}
+	} else if len(prog.Decls) > 0 {
+		prog.NodeInfo = ast.NodeInfo{Range: source.Join(prog.Decls[0].Span(), prog.Decls[len(prog.Decls)-1].Span())}
+	}
 	return prog, nil
 }
 
+func (p *Parser) parsePackageDecl() (*ast.PackageDecl, error) {
+	start := p.previous()
+	nameTok, err := p.consume(lexer.Ident, "expected package name")
+	if err != nil {
+		return nil, err
+	}
+	p.optionalSemicolons()
+	return &ast.PackageDecl{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, nameTok.Span)},
+		Name:     nameTok.Lexeme,
+	}, nil
+}
+
 func (p *Parser) parseDecl() (ast.Decl, error) {
+	public := p.match(lexer.KwPub)
 	if p.match(lexer.KwImport) {
+		if public {
+			return nil, p.errorAtPrevious("import declarations cannot be public")
+		}
 		return p.parseImportDecl()
 	}
 	if p.match(lexer.KwStruct) {
-		return p.parseStructDecl()
+		return p.parseStructDecl(public)
 	}
 	if p.match(lexer.KwEnum) {
-		return p.parseEnumDecl()
+		return p.parseEnumDecl(public)
 	}
 	if p.match(lexer.KwInterface) {
-		return p.parseInterfaceDecl()
+		return p.parseInterfaceDecl(public)
 	}
 	if p.match(lexer.KwImpl) {
+		if public {
+			return nil, p.errorAtPrevious("impl declarations cannot be public")
+		}
 		return p.parseImplDecl()
 	}
 	if p.match(lexer.KwFn) {
-		return p.parseFuncDecl()
+		return p.parseFuncDecl(public)
 	}
 	if p.match(lexer.KwConst) {
-		return p.parseGlobalLetDecl(true)
+		return p.parseGlobalLetDecl(public, true)
 	}
 	if p.match(lexer.KwLet) {
-		return p.parseGlobalLetDecl(false)
+		return p.parseGlobalLetDecl(public, false)
+	}
+	if public {
+		return nil, p.errorAtPrevious("expected declaration after 'pub'")
 	}
 	return nil, p.errorAtCurrent("expected declaration: import/struct/enum/interface/impl/fn/let/const")
 }
 
 func (p *Parser) parseImportDecl() (ast.Decl, error) {
+	start := p.previous()
 	tok, err := p.consume(lexer.String, "expected import path string")
 	if err != nil {
 		return nil, err
 	}
+	alias := ""
+	explicitAlias := false
+	end := tok.Span
+	if p.match(lexer.KwAs) {
+		aliasTok, err := p.consume(lexer.Ident, "expected import alias after 'as'")
+		if err != nil {
+			return nil, err
+		}
+		alias = aliasTok.Lexeme
+		explicitAlias = true
+		end = aliasTok.Span
+	}
 	p.optionalSemicolons()
-	return &ast.ImportDecl{Path: tok.Lexeme}, nil
+	return &ast.ImportDecl{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, end)},
+		Path:     tok.Lexeme,
+		Alias:    alias,
+		ExplicitAlias: explicitAlias,
+	}, nil
 }
 
-func (p *Parser) parseStructDecl() (ast.Decl, error) {
+func (p *Parser) parseStructDecl(public bool) (ast.Decl, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected struct name")
 	if err != nil {
 		return nil, err
@@ -99,15 +157,28 @@ func (p *Parser) parseStructDecl() (ast.Decl, error) {
 			return nil, err
 		}
 		p.optionalSemicolons()
-		fields = append(fields, ast.StructField{Name: fieldName.Lexeme, Type: fieldType})
+		fields = append(fields, ast.StructField{
+			Range: source.Join(fieldName.Span, p.previous().Span),
+			Name:  fieldName.Lexeme,
+			Type:  fieldType,
+		})
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after struct body"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after struct body")
+	if err != nil {
 		return nil, err
 	}
-	return &ast.StructDecl{Name: nameTok.Lexeme, TypeParams: typeParams, TypeParamBounds: bounds, Fields: fields}, nil
+	return &ast.StructDecl{
+		NodeInfo:        ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)},
+		Public:          public,
+		Name:            nameTok.Lexeme,
+		TypeParams:      typeParams,
+		TypeParamBounds: bounds,
+		Fields:          fields,
+	}, nil
 }
 
-func (p *Parser) parseEnumDecl() (ast.Decl, error) {
+func (p *Parser) parseEnumDecl(public bool) (ast.Decl, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected enum name")
 	if err != nil {
 		return nil, err
@@ -126,13 +197,20 @@ func (p *Parser) parseEnumDecl() (ast.Decl, error) {
 			break
 		}
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after enum body"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after enum body")
+	if err != nil {
 		return nil, err
 	}
-	return &ast.EnumDecl{Name: nameTok.Lexeme, Variants: variants}, nil
+	return &ast.EnumDecl{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)},
+		Public:   public,
+		Name:     nameTok.Lexeme,
+		Variants: variants,
+	}, nil
 }
 
-func (p *Parser) parseInterfaceDecl() (ast.Decl, error) {
+func (p *Parser) parseInterfaceDecl(public bool) (ast.Decl, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected interface name")
 	if err != nil {
 		return nil, err
@@ -167,15 +245,27 @@ func (p *Parser) parseInterfaceDecl() (ast.Decl, error) {
 			}
 		}
 		p.optionalSemicolons()
-		methods = append(methods, ast.InterfaceMethod{Name: mname.Lexeme, Params: params, Return: ret})
+		methods = append(methods, ast.InterfaceMethod{
+			Range:  source.Join(mname.Span, p.previous().Span),
+			Name:   mname.Lexeme,
+			Params: params,
+			Return: ret,
+		})
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after interface body"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after interface body")
+	if err != nil {
 		return nil, err
 	}
-	return &ast.InterfaceDecl{Name: nameTok.Lexeme, Methods: methods}, nil
+	return &ast.InterfaceDecl{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)},
+		Public:   public,
+		Name:     nameTok.Lexeme,
+		Methods:  methods,
+	}, nil
 }
 
 func (p *Parser) parseImplDecl() (ast.Decl, error) {
+	start := p.previous()
 	st, err := p.parseType()
 	if err != nil {
 		return nil, err
@@ -183,15 +273,20 @@ func (p *Parser) parseImplDecl() (ast.Decl, error) {
 	if _, err := p.consume(lexer.Colon, "expected ':' in impl declaration"); err != nil {
 		return nil, err
 	}
-	iface, err := p.consume(lexer.Ident, "expected interface name in impl declaration")
+	iface, err := p.parseType()
 	if err != nil {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.ImplDecl{StructType: st, InterfaceName: iface.Lexeme}, nil
+	return &ast.ImplDecl{
+		NodeInfo:      ast.NodeInfo{Range: source.Join(start.Span, p.previous().Span)},
+		StructType:    st,
+		InterfaceName: string(iface),
+	}, nil
 }
 
-func (p *Parser) parseFuncDecl() (ast.Decl, error) {
+func (p *Parser) parseFuncDecl(public bool) (ast.Decl, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected function name")
 	if err != nil {
 		return nil, err
@@ -222,10 +317,20 @@ func (p *Parser) parseFuncDecl() (ast.Decl, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.FuncDecl{Name: nameTok.Lexeme, TypeParams: typeParams, TypeParamBounds: bounds, Params: params, ReturnType: ret, Body: body}, nil
+	return &ast.FuncDecl{
+		NodeInfo:        ast.NodeInfo{Range: source.Join(start.Span, body.Span())},
+		Public:          public,
+		Name:            nameTok.Lexeme,
+		TypeParams:      typeParams,
+		TypeParamBounds: bounds,
+		Params:          params,
+		ReturnType:      ret,
+		Body:            body,
+	}, nil
 }
 
-func (p *Parser) parseGlobalLetDecl(isConst bool) (ast.Decl, error) {
+func (p *Parser) parseGlobalLetDecl(public bool, isConst bool) (ast.Decl, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected variable name")
 	if err != nil {
 		return nil, err
@@ -246,11 +351,19 @@ func (p *Parser) parseGlobalLetDecl(isConst bool) (ast.Decl, error) {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.GlobalLetDecl{Name: nameTok.Lexeme, Type: typ, Init: init, IsConst: isConst}, nil
+	return &ast.GlobalLetDecl{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, init.Span())},
+		Public:   public,
+		Name:     nameTok.Lexeme,
+		Type:     typ,
+		Init:     init,
+		IsConst:  isConst,
+	}, nil
 }
 
 func (p *Parser) parseBlock() (*ast.BlockStmt, error) {
-	if _, err := p.consume(lexer.LBrace, "expected '{' to start block"); err != nil {
+	start, err := p.consume(lexer.LBrace, "expected '{' to start block")
+	if err != nil {
 		return nil, err
 	}
 	block := &ast.BlockStmt{}
@@ -266,9 +379,11 @@ func (p *Parser) parseBlock() (*ast.BlockStmt, error) {
 		}
 		block.Stmts = append(block.Stmts, stmt)
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after block"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after block")
+	if err != nil {
 		return nil, err
 	}
+	block.NodeInfo = ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)}
 	return block, nil
 }
 
@@ -299,10 +414,14 @@ func (p *Parser) parseStmt() (ast.Stmt, error) {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.ExprStmt{Expr: expr}, nil
+	return &ast.ExprStmt{
+		NodeInfo: ast.NodeInfo{Range: expr.Span()},
+		Expr:     expr,
+	}, nil
 }
 
 func (p *Parser) parseLetStmt(isConst bool) (ast.Stmt, error) {
+	start := p.previous()
 	nameTok, err := p.consume(lexer.Ident, "expected variable name")
 	if err != nil {
 		return nil, err
@@ -323,7 +442,13 @@ func (p *Parser) parseLetStmt(isConst bool) (ast.Stmt, error) {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.LetStmt{Name: nameTok.Lexeme, Type: typ, Init: init, IsConst: isConst}, nil
+	return &ast.LetStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, init.Span())},
+		Name:     nameTok.Lexeme,
+		Type:     typ,
+		Init:     init,
+		IsConst:  isConst,
+	}, nil
 }
 
 func (p *Parser) parseAssignStmt() (ast.Stmt, error) {
@@ -339,7 +464,11 @@ func (p *Parser) parseAssignStmt() (ast.Stmt, error) {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.AssignStmt{Target: target, Value: value}, nil
+	return &ast.AssignStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(target.Span(), value.Span())},
+		Target:   target,
+		Value:    value,
+	}, nil
 }
 
 func (p *Parser) parseAssignTarget() (ast.Expr, error) {
@@ -347,18 +476,26 @@ func (p *Parser) parseAssignTarget() (ast.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	var expr ast.Expr = &ast.IdentExpr{Name: nameTok.Lexeme}
+	var expr ast.Expr = &ast.IdentExpr{
+		NodeInfo: ast.NodeInfo{Range: nameTok.Span},
+		Name:     nameTok.Lexeme,
+	}
 	for p.match(lexer.Dot) {
 		field, err := p.consume(lexer.Ident, "expected field name after '.'")
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.FieldAccessExpr{Object: expr, Field: field.Lexeme}
+		expr = &ast.FieldAccessExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), field.Span)},
+			Object:   expr,
+			Field:    field.Lexeme,
+		}
 	}
 	return expr, nil
 }
 
 func (p *Parser) parseIfStmt() (ast.Stmt, error) {
+	start := p.previous()
 	cond, err := p.parseExpr()
 	if err != nil {
 		return nil, err
@@ -387,7 +524,10 @@ func (p *Parser) parseIfStmt() (ast.Stmt, error) {
 					if err != nil {
 						return nil, err
 					}
-					chainedElse = &ast.BlockStmt{Stmts: []ast.Stmt{chainedIf}}
+					chainedElse = &ast.BlockStmt{
+						NodeInfo: ast.NodeInfo{Range: chainedIf.Span()},
+						Stmts:    []ast.Stmt{chainedIf},
+					}
 				} else {
 					chainedElse, err = p.parseBlock()
 					if err != nil {
@@ -395,9 +535,16 @@ func (p *Parser) parseIfStmt() (ast.Stmt, error) {
 					}
 				}
 			}
-			elseBlock = &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.IfStmt{Cond: cond, Then: thenBlock, Else: chainedElse},
-			}}
+			nestedIf := &ast.IfStmt{
+				NodeInfo: ast.NodeInfo{Range: source.Join(cond.Span(), blockSpan(thenBlock, chainedElse))},
+				Cond:     cond,
+				Then:     thenBlock,
+				Else:     chainedElse,
+			}
+			elseBlock = &ast.BlockStmt{
+				NodeInfo: ast.NodeInfo{Range: nestedIf.Span()},
+				Stmts:    []ast.Stmt{nestedIf},
+			}
 		} else {
 			elseBlock, err = p.parseBlock()
 			if err != nil {
@@ -405,10 +552,16 @@ func (p *Parser) parseIfStmt() (ast.Stmt, error) {
 			}
 		}
 	}
-	return &ast.IfStmt{Cond: cond, Then: thenBlock, Else: elseBlock}, nil
+	return &ast.IfStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, blockSpan(thenBlock, elseBlock))},
+		Cond:     cond,
+		Then:     thenBlock,
+		Else:     elseBlock,
+	}, nil
 }
 
 func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
+	start := p.previous()
 	cond, err := p.parseExpr()
 	if err != nil {
 		return nil, err
@@ -417,10 +570,15 @@ func (p *Parser) parseWhileStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ast.WhileStmt{Cond: cond, Body: body}, nil
+	return &ast.WhileStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, body.Span())},
+		Cond:     cond,
+		Body:     body,
+	}, nil
 }
 
 func (p *Parser) parseMatchStmt() (ast.Stmt, error) {
+	start := p.previous()
 	prevAllowStructLiteral := p.allowStructLiteral
 	p.allowStructLiteral = false
 	subject, err := p.parseExpr()
@@ -437,7 +595,11 @@ func (p *Parser) parseMatchStmt() (ast.Stmt, error) {
 		if p.check(lexer.RBrace) {
 			break
 		}
-		variant, err := p.consume(lexer.Ident, "expected enum variant in match arm")
+		variantTok, err := p.consume(lexer.Ident, "expected enum variant in match arm")
+		if err != nil {
+			return nil, err
+		}
+		variant, variantSpan, err := p.parseQualifiedName(variantTok, "variant name")
 		if err != nil {
 			return nil, err
 		}
@@ -456,15 +618,30 @@ func (p *Parser) parseMatchStmt() (ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		arms = append(arms, ast.MatchArm{Variant: variant.Lexeme, Guard: guard, Body: body})
+		armEnd := body.Span()
+		if guard != nil {
+			armEnd = body.Span()
+		}
+		arms = append(arms, ast.MatchArm{
+			Range:   source.Join(variantSpan, armEnd),
+			Variant: variant,
+			Guard:   guard,
+			Body:    body,
+		})
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after match statement"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after match statement")
+	if err != nil {
 		return nil, err
 	}
-	return &ast.MatchStmt{Subject: subject, Arms: arms}, nil
+	return &ast.MatchStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)},
+		Subject:  subject,
+		Arms:     arms,
+	}, nil
 }
 
 func (p *Parser) parseMatchExpr() (ast.Expr, error) {
+	start := p.previous()
 	prevAllowStructLiteral := p.allowStructLiteral
 	p.allowStructLiteral = false
 	subject, err := p.parseExpr()
@@ -481,7 +658,11 @@ func (p *Parser) parseMatchExpr() (ast.Expr, error) {
 		if p.check(lexer.RBrace) {
 			break
 		}
-		variant, err := p.consume(lexer.Ident, "expected enum variant in match arm")
+		variantTok, err := p.consume(lexer.Ident, "expected enum variant in match arm")
+		if err != nil {
+			return nil, err
+		}
+		variant, variantSpan, err := p.parseQualifiedName(variantTok, "variant name")
 		if err != nil {
 			return nil, err
 		}
@@ -500,7 +681,12 @@ func (p *Parser) parseMatchExpr() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		arms = append(arms, ast.MatchExprArm{Variant: variant.Lexeme, Guard: guard, Value: value})
+		arms = append(arms, ast.MatchExprArm{
+			Range:   source.Join(variantSpan, value.Span()),
+			Variant: variant,
+			Guard:   guard,
+			Value:   value,
+		})
 		p.optionalSemicolons()
 		if p.match(lexer.Comma) {
 			continue
@@ -510,22 +696,32 @@ func (p *Parser) parseMatchExpr() (ast.Expr, error) {
 		}
 		break
 	}
-	if _, err := p.consume(lexer.RBrace, "expected '}' after match expression"); err != nil {
+	endTok, err := p.consume(lexer.RBrace, "expected '}' after match expression")
+	if err != nil {
 		return nil, err
 	}
-	return &ast.MatchExpr{Subject: subject, Arms: arms, ResolvedType: ast.TypeInvalid}, nil
+	return &ast.MatchExpr{
+		NodeInfo:     ast.NodeInfo{Range: source.Join(start.Span, endTok.Span)},
+		Subject:      subject,
+		Arms:         arms,
+		ResolvedType: ast.TypeInvalid,
+	}, nil
 }
 
 func (p *Parser) parseReturnStmt() (ast.Stmt, error) {
+	start := p.previous()
 	if p.match(lexer.Semicolon) {
-		return &ast.ReturnStmt{}, nil
+		return &ast.ReturnStmt{NodeInfo: ast.NodeInfo{Range: start.Span}}, nil
 	}
 	value, err := p.parseExpr()
 	if err != nil {
 		return nil, err
 	}
 	p.optionalSemicolons()
-	return &ast.ReturnStmt{Value: value}, nil
+	return &ast.ReturnStmt{
+		NodeInfo: ast.NodeInfo{Range: source.Join(start.Span, value.Span())},
+		Value:    value,
+	}, nil
 }
 
 func (p *Parser) parseExpr() (ast.Expr, error) { return p.parseOr() }
@@ -541,7 +737,12 @@ func (p *Parser) parseOr() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
@@ -557,7 +758,12 @@ func (p *Parser) parseAnd() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
@@ -573,7 +779,12 @@ func (p *Parser) parseEquality() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
@@ -589,7 +800,12 @@ func (p *Parser) parseComparison() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
@@ -605,7 +821,12 @@ func (p *Parser) parseTerm() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
@@ -621,19 +842,28 @@ func (p *Parser) parseFactor() (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		expr = &ast.BinaryExpr{Left: expr, Op: op, Right: right}
+		expr = &ast.BinaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), right.Span())},
+			Left:     expr,
+			Op:       op,
+			Right:    right,
+		}
 	}
 	return expr, nil
 }
 
 func (p *Parser) parseUnary() (ast.Expr, error) {
 	if p.match(lexer.Bang, lexer.Minus) {
-		op := p.previous().Lexeme
+		opTok := p.previous()
 		right, err := p.parseUnary()
 		if err != nil {
 			return nil, err
 		}
-		return &ast.UnaryExpr{Op: op, Right: right}, nil
+		return &ast.UnaryExpr{
+			NodeInfo: ast.NodeInfo{Range: source.Join(opTok.Span, right.Span())},
+			Op:       opTok.Lexeme,
+			Right:    right,
+		}, nil
 	}
 	return p.parsePostfix()
 }
@@ -661,11 +891,21 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 			if _, err := p.consume(lexer.RParen, "expected ')' after arguments"); err != nil {
 				return nil, err
 			}
+			endTok := p.previous()
 			switch target := expr.(type) {
 			case *ast.IdentExpr:
-				expr = &ast.CallExpr{Callee: target.Name, Args: args}
+				expr = &ast.CallExpr{
+					NodeInfo: ast.NodeInfo{Range: source.Join(target.Span(), endTok.Span)},
+					Callee:   target.Name,
+					Args:     args,
+				}
 			case *ast.FieldAccessExpr:
-				expr = &ast.CallExpr{Receiver: target.Object, Method: target.Field, Args: args}
+				expr = &ast.CallExpr{
+					NodeInfo: ast.NodeInfo{Range: source.Join(target.Span(), endTok.Span)},
+					Receiver: target.Object,
+					Method:   target.Field,
+					Args:     args,
+				}
 			default:
 				return nil, p.errorAtCurrent("only functions or methods can be called")
 			}
@@ -676,7 +916,11 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			expr = &ast.FieldAccessExpr{Object: expr, Field: field.Lexeme}
+			expr = &ast.FieldAccessExpr{
+				NodeInfo: ast.NodeInfo{Range: source.Join(expr.Span(), field.Span)},
+				Object:   expr,
+				Field:    field.Lexeme,
+			}
 			continue
 		}
 		break
@@ -686,52 +930,42 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 
 func (p *Parser) parsePrimary() (ast.Expr, error) {
 	if p.match(lexer.KwTrue) {
-		return &ast.BoolExpr{Value: true}, nil
+		return &ast.BoolExpr{NodeInfo: ast.NodeInfo{Range: p.previous().Span}, Value: true}, nil
 	}
 	if p.match(lexer.KwFalse) {
-		return &ast.BoolExpr{Value: false}, nil
+		return &ast.BoolExpr{NodeInfo: ast.NodeInfo{Range: p.previous().Span}, Value: false}, nil
 	}
 	if p.match(lexer.KwNil) {
-		return &ast.NilExpr{}, nil
+		return &ast.NilExpr{NodeInfo: ast.NodeInfo{Range: p.previous().Span}}, nil
 	}
 	if p.match(lexer.KwMatch) {
 		return p.parseMatchExpr()
 	}
 	if p.match(lexer.Int) {
-		v, err := strconv.ParseInt(p.previous().Lexeme, 10, 64)
+		tok := p.previous()
+		v, err := strconv.ParseInt(tok.Lexeme, 10, 64)
 		if err != nil {
 			return nil, p.errorAtCurrent("invalid integer literal")
 		}
-		return &ast.IntExpr{Value: v}, nil
+		return &ast.IntExpr{NodeInfo: ast.NodeInfo{Range: tok.Span}, Value: v}, nil
 	}
 	if p.match(lexer.Float) {
-		v, err := strconv.ParseFloat(p.previous().Lexeme, 64)
+		tok := p.previous()
+		v, err := strconv.ParseFloat(tok.Lexeme, 64)
 		if err != nil {
 			return nil, p.errorAtCurrent("invalid float literal")
 		}
-		return &ast.FloatExpr{Value: v}, nil
+		return &ast.FloatExpr{NodeInfo: ast.NodeInfo{Range: tok.Span}, Value: v}, nil
 	}
 	if p.match(lexer.String) {
-		return &ast.StringExpr{Value: p.previous().Lexeme}, nil
+		tok := p.previous()
+		return &ast.StringExpr{NodeInfo: ast.NodeInfo{Range: tok.Span}, Value: tok.Lexeme}, nil
 	}
 	if p.match(lexer.Ident) {
-		name := p.previous().Lexeme
-		if p.match(lexer.LBracket) {
-			args := make([]string, 0, 2)
-			for {
-				t, err := p.parseType()
-				if err != nil {
-					return nil, err
-				}
-				args = append(args, string(t))
-				if !p.match(lexer.Comma) {
-					break
-				}
-			}
-			if _, err := p.consume(lexer.RBracket, "expected ']' after generic args"); err != nil {
-				return nil, err
-			}
-			name = fmt.Sprintf("%s[%s]", name, strings.Join(args, ","))
+		nameTok := p.previous()
+		name, nameSpan, qualified, err := p.parseQualifiedTypeName(nameTok)
+		if err != nil {
+			return nil, err
 		}
 		if p.allowStructLiteral && p.check(lexer.LBrace) && p.looksLikeStructLiteral() {
 			p.pos++
@@ -749,7 +983,11 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 					if err != nil {
 						return nil, err
 					}
-					fields = append(fields, ast.StructLitField{Name: fName.Lexeme, Value: fVal})
+					fields = append(fields, ast.StructLitField{
+						Range: source.Join(fName.Span, fVal.Span()),
+						Name:  fName.Lexeme,
+						Value: fVal,
+					})
 					p.optionalSemicolons()
 					if p.match(lexer.Comma) || p.match(lexer.Semicolon) {
 						continue
@@ -763,12 +1001,19 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			if _, err := p.consume(lexer.RBrace, "expected '}' after struct literal"); err != nil {
 				return nil, err
 			}
-			return &ast.StructLitExpr{TypeName: name, Fields: fields}, nil
+			return &ast.StructLitExpr{
+				NodeInfo: ast.NodeInfo{Range: source.Join(nameSpan, p.previous().Span)},
+				TypeName: name,
+				Fields:   fields,
+			}, nil
 		}
 		if strings.Contains(name, "[") {
 			return nil, p.errorAtCurrent("generic type expressions must be struct literals")
 		}
-		return &ast.IdentExpr{Name: name}, nil
+		if qualified {
+			return p.buildQualifiedExpr(name, nameSpan), nil
+		}
+		return &ast.IdentExpr{NodeInfo: ast.NodeInfo{Range: nameSpan}, Name: name}, nil
 	}
 	if p.match(lexer.LParen) {
 		expr, err := p.parseExpr()
@@ -788,24 +1033,11 @@ func (p *Parser) parseType() (ast.Type, error) {
 	if err != nil {
 		return ast.TypeInvalid, err
 	}
-	if !p.match(lexer.LBracket) {
-		return ast.Type(base.Lexeme), nil
-	}
-	args := make([]string, 0, 2)
-	for {
-		t, err := p.parseType()
-		if err != nil {
-			return ast.TypeInvalid, err
-		}
-		args = append(args, string(t))
-		if !p.match(lexer.Comma) {
-			break
-		}
-	}
-	if _, err := p.consume(lexer.RBracket, "expected ']' after generic type args"); err != nil {
+	name, _, _, err := p.parseQualifiedTypeName(base)
+	if err != nil {
 		return ast.TypeInvalid, err
 	}
-	return ast.Type(fmt.Sprintf("%s[%s]", base.Lexeme, strings.Join(args, ","))), nil
+	return ast.Type(name), nil
 }
 
 func (p *Parser) parseTypeParams() ([]string, map[string]ast.Type, error) {
@@ -820,11 +1052,11 @@ func (p *Parser) parseTypeParams() ([]string, map[string]ast.Type, error) {
 			return nil, nil, err
 		}
 		if p.match(lexer.Colon) {
-			boundTok, err := p.consume(lexer.Ident, "expected interface name after ':'")
+			boundType, err := p.parseType()
 			if err != nil {
 				return nil, nil, err
 			}
-			bounds[tok.Lexeme] = ast.Type(boundTok.Lexeme)
+			bounds[tok.Lexeme] = boundType
 		}
 		typeParams = append(typeParams, tok.Lexeme)
 		if !p.match(lexer.Comma) {
@@ -854,7 +1086,11 @@ func (p *Parser) parseParams() ([]ast.Param, error) {
 		if err != nil {
 			return nil, err
 		}
-		params = append(params, ast.Param{Name: paramName.Lexeme, Type: paramType})
+		params = append(params, ast.Param{
+			Range: source.Join(paramName.Span, p.previous().Span),
+			Name:  paramName.Lexeme,
+			Type:  paramType,
+		})
 		if !p.match(lexer.Comma) {
 			break
 		}
@@ -899,7 +1135,12 @@ func (p *Parser) previous() lexer.Token { return p.tokens[p.pos-1] }
 
 func (p *Parser) errorAtCurrent(msg string) error {
 	tok := p.peek()
-	return fmt.Errorf("parse error at %d:%d: %s (got '%s')", tok.Line, tok.Col, msg, tok.Lexeme)
+	return diag.New("parse error", fmt.Sprintf("%s (got '%s')", msg, tok.Lexeme), tok.Span)
+}
+
+func (p *Parser) errorAtPrevious(msg string) error {
+	tok := p.previous()
+	return diag.New("parse error", fmt.Sprintf("%s (got '%s')", msg, tok.Lexeme), tok.Span)
 }
 
 func (p *Parser) optionalSemicolons() {
@@ -937,4 +1178,72 @@ func (p *Parser) isAssignStart() bool {
 		return false
 	}
 	return p.tokens[i].Kind == lexer.Equal
+}
+
+func blockSpan(thenBlock, elseBlock *ast.BlockStmt) source.Span {
+	if elseBlock != nil {
+		return elseBlock.Span()
+	}
+	return thenBlock.Span()
+}
+
+func (p *Parser) parseQualifiedTypeName(first lexer.Token) (string, source.Span, bool, error) {
+	name := first.Lexeme
+	nameSpan := first.Span
+	qualified := false
+	for p.match(lexer.Dot) {
+		part, err := p.consume(lexer.Ident, "expected type name after '.'")
+		if err != nil {
+			return "", source.Span{}, false, err
+		}
+		qualified = true
+		name += "." + part.Lexeme
+		nameSpan = source.Join(nameSpan, part.Span)
+	}
+	if p.match(lexer.LBracket) {
+		args := make([]string, 0, 2)
+		for {
+			t, err := p.parseType()
+			if err != nil {
+				return "", source.Span{}, false, err
+			}
+			args = append(args, string(t))
+			if !p.match(lexer.Comma) {
+				break
+			}
+		}
+		if _, err := p.consume(lexer.RBracket, "expected ']' after generic type args"); err != nil {
+			return "", source.Span{}, false, err
+		}
+		name = fmt.Sprintf("%s[%s]", name, strings.Join(args, ","))
+		nameSpan = source.Join(nameSpan, p.previous().Span)
+	}
+	return name, nameSpan, qualified, nil
+}
+
+func (p *Parser) parseQualifiedName(first lexer.Token, label string) (string, source.Span, error) {
+	name := first.Lexeme
+	nameSpan := first.Span
+	for p.match(lexer.Dot) {
+		part, err := p.consume(lexer.Ident, "expected "+label+" after '.'")
+		if err != nil {
+			return "", source.Span{}, err
+		}
+		name += "." + part.Lexeme
+		nameSpan = source.Join(nameSpan, part.Span)
+	}
+	return name, nameSpan, nil
+}
+
+func (p *Parser) buildQualifiedExpr(name string, span source.Span) ast.Expr {
+	parts := strings.Split(name, ".")
+	expr := ast.Expr(&ast.IdentExpr{NodeInfo: ast.NodeInfo{Range: span}, Name: parts[0]})
+	for _, part := range parts[1:] {
+		expr = &ast.FieldAccessExpr{
+			NodeInfo: ast.NodeInfo{Range: span},
+			Object:   expr,
+			Field:    part,
+		}
+	}
+	return expr
 }

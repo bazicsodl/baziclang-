@@ -22,6 +22,13 @@ func Format(src string) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
+	if prog.Package != nil {
+		b.WriteString("package ")
+		b.WriteString(prog.Package.Name)
+		if len(prog.Decls) > 0 {
+			b.WriteString("\n\n")
+		}
+	}
 	for i, d := range prog.Decls {
 		if i > 0 {
 			b.WriteString("\n\n")
@@ -100,19 +107,31 @@ func CollectBZFiles(target string) ([]string, error) {
 func writeDecl(b *strings.Builder, d ast.Decl, indent int) error {
 	switch decl := d.(type) {
 	case *ast.ImportDecl:
-		indentWrite(b, indent, "import "+quote(decl.Path))
+		line := "import " + quote(decl.Path)
+		if decl.Alias != "" {
+			line += " as " + decl.Alias
+		}
+		indentWrite(b, indent, line)
 	case *ast.StructDecl:
+		prefix := ""
+		if decl.Public {
+			prefix = "pub "
+		}
 		if len(decl.TypeParams) > 0 {
-			indentWrite(b, indent, fmt.Sprintf("struct %s[%s] {", decl.Name, strings.Join(decl.TypeParams, ", ")))
+			indentWrite(b, indent, fmt.Sprintf("%sstruct %s[%s] {", prefix, decl.Name, strings.Join(decl.TypeParams, ", ")))
 		} else {
-			indentWrite(b, indent, fmt.Sprintf("struct %s {", decl.Name))
+			indentWrite(b, indent, fmt.Sprintf("%sstruct %s {", prefix, decl.Name))
 		}
 		for _, f := range decl.Fields {
 			indentWrite(b, indent+1, fmt.Sprintf("%s: %s", f.Name, f.Type))
 		}
 		indentWrite(b, indent, "}")
 	case *ast.InterfaceDecl:
-		indentWrite(b, indent, fmt.Sprintf("interface %s {", decl.Name))
+		prefix := ""
+		if decl.Public {
+			prefix = "pub "
+		}
+		indentWrite(b, indent, fmt.Sprintf("%sinterface %s {", prefix, decl.Name))
 		for _, m := range decl.Methods {
 			params := formatParams(m.Params)
 			if m.Return == ast.TypeVoid {
@@ -125,9 +144,16 @@ func writeDecl(b *strings.Builder, d ast.Decl, indent int) error {
 	case *ast.ImplDecl:
 		indentWrite(b, indent, fmt.Sprintf("impl %s: %s", decl.StructType, decl.InterfaceName))
 	case *ast.EnumDecl:
-		indentWrite(b, indent, fmt.Sprintf("enum %s { %s }", decl.Name, strings.Join(decl.Variants, ", ")))
+		prefix := ""
+		if decl.Public {
+			prefix = "pub "
+		}
+		indentWrite(b, indent, fmt.Sprintf("%senum %s { %s }", prefix, decl.Name, strings.Join(decl.Variants, ", ")))
 	case *ast.FuncDecl:
 		head := "fn " + decl.Name
+		if decl.Public {
+			head = "pub " + head
+		}
 		if len(decl.TypeParams) > 0 {
 			head += "[" + strings.Join(decl.TypeParams, ", ") + "]"
 		}
@@ -148,6 +174,9 @@ func writeDecl(b *strings.Builder, d ast.Decl, indent int) error {
 		kw := "let"
 		if decl.IsConst {
 			kw = "const"
+		}
+		if decl.Public {
+			kw = "pub " + kw
 		}
 		if decl.Type == ast.TypeInvalid {
 			indentWrite(b, indent, fmt.Sprintf("%s %s = %s", kw, decl.Name, rhs))

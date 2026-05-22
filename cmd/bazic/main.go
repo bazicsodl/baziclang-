@@ -9,7 +9,7 @@ import (
 func main() {
 	os.Exit(cli.Run(os.Args, cli.Options{
 		BinaryName:     "bazic",
-		DefaultBackend: "llvm",
+		DefaultBackend: "go",
 		Version:        "v0.2.0",
 	}))
 }

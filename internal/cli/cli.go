@@ -27,6 +27,18 @@ type Options struct {
 	Version        string
 }
 
+var alphaStableStdModules = []string{
+	"io", "fs", "time", "json", "http", "crypto", "base64", "collections", "os", "path",
+}
+
+var alphaExperimentalStdModules = []string{
+	"db", "auth", "jwt", "session", "desktop", "web", "ui", "sql", "validate",
+}
+
+func joinModules(mods []string) string {
+	return strings.Join(mods, ", ")
+}
+
 func Run(args []string, opts Options) int {
 	name := strings.TrimSpace(opts.BinaryName)
 	if name == "" {
@@ -892,6 +904,11 @@ func doctorCmd(binaryName string, defaultBackend string, args []string) int {
 		return die(fmt.Sprintf("usage: %s doctor", binaryName))
 	}
 	fail := false
+	fmt.Println("release track: alpha")
+	fmt.Println("go backend: stable release path")
+	fmt.Println("llvm backend: experimental")
+	fmt.Printf("stdlib core: %s\n", joinModules(alphaStableStdModules))
+	fmt.Printf("stdlib experimental: %s\n", joinModules(alphaExperimentalStdModules))
 	if defaultBackend == "llvm" {
 		if _, err := exec.LookPath("clang"); err != nil {
 			fmt.Println("clang: missing (required for LLVM backend)")

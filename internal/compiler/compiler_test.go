@@ -522,7 +522,10 @@ fn main(): void {
 	if err != nil {
 		t.Fatalf("compile failed: %v", err)
 	}
-	if !strings.Contains(goOut, "println(User_label(u))") {
+	if !strings.Contains(goOut, "User_label(u)") {
+		t.Fatalf("expected method call to lower through User_label(u), got:\n%s", goOut)
+	}
+	if !strings.Contains(goOut, "println(arg__mir") && !strings.Contains(goOut, "println(User_label(u))") {
 		t.Fatalf("expected method call to compile to function call, got:\n%s", goOut)
 	}
 }
@@ -593,6 +596,38 @@ func TestSafetyPreludeOptionResultErrorAvailable(t *testing.T) {
 	}
 	if !strings.Contains(goOut, "func err[T any, E any](fallback_value T, err_value E) Result[T, E]") {
 		t.Fatalf("expected prelude err() helper in generated code, got:\n%s", goOut)
+	}
+}
+
+func TestCompileToGoEmitsHttpServeAppHelperOnlyOnce(t *testing.T) {
+	src := `struct ServerRequest {
+    method: string;
+    path: string;
+    query: string;
+    headers: string;
+    cookies: string;
+    body: string;
+}
+
+struct ServerResponse {
+    status: int;
+    headers: string;
+    body: string;
+}
+
+fn GET_root(req: ServerRequest): ServerResponse {
+    return ServerResponse { status: 200, headers: "", body: req.path };
+}
+
+fn main(): void {
+    println("ok");
+}`
+	goOut, err := CompileToGo(src)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+	if got := strings.Count(goOut, "func __std_http_serve_app(addr string) Result[bool, Error]"); got != 1 {
+		t.Fatalf("expected exactly one serve_app helper, got %d\n%s", got, goOut)
 	}
 }
 
@@ -694,7 +729,7 @@ fn main(): void {
 	if err != nil {
 		t.Fatalf("compile failed: %v", err)
 	}
-	if !strings.Contains(goOut, "var label string = func() string {") {
+	if !strings.Contains(goOut, "var label string = func() string {") && !strings.Contains(goOut, "var let__mir") {
 		t.Fatalf("expected typed match expression codegen, got:\n%s", goOut)
 	}
 	if !strings.Contains(goOut, "case Guest:") || !strings.Contains(goOut, "return \"guest\"") {
@@ -785,6 +820,9 @@ func TestCheckEntryRejectsUnusedLocalVariable(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unused variable 'x'") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "type error at 2:") {
+		t.Fatalf("expected span-aware semantic location, got: %v", err)
 	}
 }
 
@@ -1024,6 +1062,9 @@ func TestCheckEntrySuggestsUnknownIdentifier(t *testing.T) {
 	if !strings.Contains(err.Error(), "did you mean 'count'") {
 		t.Fatalf("expected suggestion for count, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "type error at 3:") {
+		t.Fatalf("expected span-aware semantic location, got: %v", err)
+	}
 }
 
 func TestCheckEntrySuggestsUnknownFunction(t *testing.T) {
@@ -1042,5 +1083,994 @@ fn main(): void {
 	}
 	if !strings.Contains(err.Error(), "did you mean 'helper'") {
 		t.Fatalf("expected suggestion for helper, got: %v", err)
+	}
+}
+
+func TestCheckEntryRendersSemanticErrorFromImportedFile(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	lib := `fn helper(): void {
+    println(coutn);
+}`
+	main := `import "./lib/main.bz";
+fn main(): void {
+    helper();
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(lib), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected semantic error from imported file")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, libPath) {
+		t.Fatalf("expected imported file path in diagnostic, got: %v", err)
+	}
+	if !strings.Contains(msg, "println(coutn);") {
+		t.Fatalf("expected imported file source line in diagnostic, got: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsImportedMainFunction(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	lib := `fn main(): void {
+    println("bad");
+}`
+	main := `import "./lib/main.bz";
+fn main(): void {
+    println("ok");
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(lib), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected imported main rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "imported files must not declare 'main'") {
+		t.Fatalf("expected imported main diagnostic, got: %v", err)
+	}
+	if !strings.Contains(msg, libPath) {
+		t.Fatalf("expected imported file path in diagnostic, got: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsDuplicateTopLevelSymbolAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	lib := `fn helper(): int { return 1; }`
+	main := `import "./lib/main.bz";
+fn helper(): int { return 2; }
+fn main(): void {
+    println(helper());
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(lib), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected duplicate top-level symbol rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "duplicate top-level symbol 'helper'") {
+		t.Fatalf("expected duplicate top-level symbol diagnostic, got: %v", err)
+	}
+	if !strings.Contains(msg, libPath) {
+		t.Fatalf("expected original declaration file in diagnostic, got: %v", err)
+	}
+}
+
+func TestCheckEntryAcceptsExplicitMainPackage(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main;
+fn main(): void {
+    println("ok");
+}`
+	entry := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(entry, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(entry); err != nil {
+		t.Fatalf("check failed: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsNonMainEntryPackage(t *testing.T) {
+	dir := t.TempDir()
+	src := `package app;
+fn main(): void {
+    println("ok");
+}`
+	entry := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(entry, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(entry)
+	if err == nil {
+		t.Fatalf("expected entry package rejection")
+	}
+	if !strings.Contains(err.Error(), "entry file must declare 'package main'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsRelativeImportPackageMismatch(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	lib := `package lib;
+fn helper(): int { return 1; }`
+	main := `package main;
+import "./lib/main.bz";
+fn main(): void {
+    println(helper());
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(lib), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected relative import package mismatch")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "relative import package mismatch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(msg, libPath) {
+		t.Fatalf("expected imported file path in diagnostic, got: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsImportedPackageMainDeclaration(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package main;
+fn helper(): int { return 1; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	main := `package main;
+import "util";
+fn main(): void {
+    println(helper());
+}`
+	entry := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(entry, []byte(main), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(entry)
+	if err == nil {
+		t.Fatalf("expected imported package main rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "imported packages must not declare 'package main'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(msg, filepath.Join(root, ".bazic", "pkg", "util", "main.bz")) {
+		t.Fatalf("expected cached imported package path in diagnostic, got: %v", err)
+	}
+}
+
+func TestCheckEntryEnforcesPubVisibilityForImportedPackageFunctions(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+fn secret(): int { return 7; }
+pub fn helper(): int { return secret(); }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	okSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.helper());
+}`
+	okPath := filepath.Join(root, "main_ok.bz")
+	if err := os.WriteFile(okPath, []byte(okSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(okPath); err != nil {
+		t.Fatalf("expected qualified public helper to be accessible: %v", err)
+	}
+	badSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.secret());
+}`
+	badPath := filepath.Join(root, "main_bad.bz")
+	if err := os.WriteFile(badPath, []byte(badSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(badPath)
+	if err == nil {
+		t.Fatalf("expected private imported function rejection")
+	}
+	if !strings.Contains(err.Error(), "package 'util' has no public function 'secret'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryEnforcesPubVisibilityForImportedPackageGlobals(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 42;
+const hidden = 9;
+pub fn reveal(): int { return hidden; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	okSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.answer);
+    println(util.reveal());
+}`
+	okPath := filepath.Join(root, "globals_ok.bz")
+	if err := os.WriteFile(okPath, []byte(okSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(okPath); err != nil {
+		t.Fatalf("expected qualified public imported global to be accessible: %v", err)
+	}
+	badSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.hidden);
+}`
+	badPath := filepath.Join(root, "globals_bad.bz")
+	if err := os.WriteFile(badPath, []byte(badSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(badPath)
+	if err == nil {
+		t.Fatalf("expected private imported global rejection")
+	}
+	if !strings.Contains(err.Error(), "package 'util' has no public value 'hidden'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsSamePackagePrivateRelativeImports(t *testing.T) {
+	root := t.TempDir()
+	libDir := filepath.Join(root, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	libSrc := `package main;
+fn secret(): int { return 5; }`
+	mainSrc := `package main;
+import "./lib/main.bz";
+fn main(): void {
+    println(secret());
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(libSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected same-package private helper access: %v", err)
+	}
+}
+
+func TestCheckEntryEnforcesPubVisibilityForImportedPackageTypes(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+struct Hidden { value: int; }
+pub struct Visible { value: int; }
+pub fn make_visible(): Visible { return Visible { value: 1 }; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	okSrc := `package main;
+import "util";
+fn main(): void {
+    let v = util.Visible { value: 2 };
+    println(v.value);
+    println(util.make_visible().value);
+}`
+	okPath := filepath.Join(root, "types_ok.bz")
+	if err := os.WriteFile(okPath, []byte(okSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(okPath); err != nil {
+		t.Fatalf("expected qualified public imported type access: %v", err)
+	}
+	badSrc := `package main;
+import "util";
+fn main(): void {
+    let h = util.Hidden { value: 3 };
+    println(h.value);
+}`
+	badPath := filepath.Join(root, "types_bad.bz")
+	if err := os.WriteFile(badPath, []byte(badSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(badPath)
+	if err == nil {
+		t.Fatalf("expected private imported type rejection")
+	}
+	if !strings.Contains(err.Error(), "package 'util' has no public type 'Hidden'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsQualifiedImportedPackageTypes(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+struct Hidden { value: int; }
+pub struct Visible { value: int; }
+pub fn make_visible(): Visible { return Visible { value: 1 }; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    let v: util.Visible = util.Visible { value: 2 };
+    println(v.value);
+    println(util.make_visible().value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected qualified imported type access: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsBareAccessFromExplicitPublicImportedPackage(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 42;
+pub fn helper(): int { return answer; }
+pub struct Visible { value: int; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    println(answer);
+    println(helper());
+    let v = Visible { value: 1 };
+    println(v.value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected bare imported access rejection for explicit public package")
+	}
+	if !strings.Contains(err.Error(), "unknown identifier 'answer'") && !strings.Contains(err.Error(), "unknown function 'helper'") && !strings.Contains(err.Error(), "unknown type 'Visible'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "did you mean 'util.answer'") {
+		t.Fatalf("expected qualified import suggestion, got: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsQualifiedPrivateImportedPackageTypes(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+struct Hidden { value: int; }
+pub struct Visible { value: int; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    let h = util.Hidden { value: 3 };
+    println(h.value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected qualified private imported type rejection")
+	}
+	if !strings.Contains(err.Error(), "package 'util' has no public type 'Hidden'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsSamePackagePrivateRelativeTypes(t *testing.T) {
+	root := t.TempDir()
+	libDir := filepath.Join(root, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	libSrc := `package main;
+struct Hidden { value: int; }`
+	mainSrc := `package main;
+import "./lib/main.bz";
+fn main(): void {
+    let h = Hidden { value: 8 };
+    println(h.value);
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(libSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected same-package private type access: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsQualifiedImportedPackageAccess(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 42;
+pub fn helper(): int { return answer; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.answer);
+    println(util.helper());
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected qualified imported package access: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsAliasedImportedPackageAccess(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 42;
+pub fn helper(): int { return answer; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util" as tools;
+fn main(): void {
+    println(tools.answer);
+    println(tools.helper());
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected aliased imported package access: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsBareAccessFromExplicitImportAlias(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 42;
+pub fn helper(): int { return answer; }
+pub struct Visible { value: int; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util" as tools;
+fn main(): void {
+    println(answer);
+    println(helper());
+    let v = Visible { value: 1 };
+    println(v.value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected bare imported access rejection for explicit alias import")
+	}
+	if !strings.Contains(err.Error(), "unknown identifier 'answer'") && !strings.Contains(err.Error(), "unknown function 'helper'") && !strings.Contains(err.Error(), "unknown type 'Visible'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "did you mean 'tools.answer'") {
+		t.Fatalf("expected qualified alias suggestion, got: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsQualifiedPrivateImportedPackageAccess(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub fn helper(): int { return 1; }
+fn secret(): int { return 9; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.secret());
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected qualified private imported access rejection")
+	}
+	if !strings.Contains(err.Error(), "package 'util' has no public function 'secret'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsRelativeImportAlias(t *testing.T) {
+	root := t.TempDir()
+	libDir := filepath.Join(root, "lib")
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	libSrc := `package main;
+fn helper(): int { return 1; }`
+	mainSrc := `package main;
+import "./lib/main.bz" as lib;
+fn main(): void {
+    println(helper());
+}`
+	libPath := filepath.Join(libDir, "main.bz")
+	if err := os.WriteFile(libPath, []byte(libSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected relative import alias rejection")
+	}
+	if !strings.Contains(err.Error(), "relative imports cannot declare an alias") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsDuplicateImportAlias(t *testing.T) {
+	root := t.TempDir()
+	depOne := t.TempDir()
+	depTwo := t.TempDir()
+	depOneSrc := `package utilone;
+pub const answer = 1;`
+	depTwoSrc := `package utiltwo;
+pub const answer = 2;`
+	if err := os.WriteFile(filepath.Join(depOne, "main.bz"), []byte(depOneSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depTwo, "main.bz"), []byte(depTwoSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utilone", depOne); err != nil {
+		t.Fatalf("add dep utilone: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utiltwo", depTwo); err != nil {
+		t.Fatalf("add dep utiltwo: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "utilone" as tools;
+import "utiltwo" as tools;
+fn main(): void {
+    println("ok");
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected duplicate import alias rejection")
+	}
+	if !strings.Contains(err.Error(), "duplicate import alias 'tools'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCompileEntryPreservesQualifiedImportedPackageSymbols(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub const answer = 41;
+pub fn helper(): int { return answer + 1; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    println(util.answer);
+    println(util.helper());
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	goOut, err := CompileEntryToGo(mainPath)
+	if err != nil {
+		t.Fatalf("go compile failed: %v", err)
+	}
+	if !strings.Contains(goOut, "__pkg_util__answer") || !strings.Contains(goOut, "__pkg_util__helper") {
+		t.Fatalf("expected mangled util symbols in go output, got:\n%s", goOut)
+	}
+
+	llvmOut, err := CompileEntryToLLVM(mainPath)
+	if err != nil {
+		t.Fatalf("llvm compile failed: %v", err)
+	}
+	if !strings.Contains(llvmOut, "@__pkg_util__answer") || !strings.Contains(llvmOut, "@__pkg_util__helper") {
+		t.Fatalf("expected mangled util symbols in llvm output, got:\n%s", llvmOut)
+	}
+}
+
+func TestCheckEntryAllowsCrossPackageDuplicateTypeNamesWhenUnused(t *testing.T) {
+	root := t.TempDir()
+	depOne := t.TempDir()
+	depTwo := t.TempDir()
+	depOneSrc := `package utilone;
+pub struct Shared { value: int; }`
+	depTwoSrc := `package utiltwo;
+pub struct Shared { value: int; }`
+	if err := os.WriteFile(filepath.Join(depOne, "main.bz"), []byte(depOneSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depTwo, "main.bz"), []byte(depTwoSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utilone", depOne); err != nil {
+		t.Fatalf("add dep utilone: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utiltwo", depTwo); err != nil {
+		t.Fatalf("add dep utiltwo: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "utilone";
+import "utiltwo";
+fn main(): void {
+    println("ok");
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected duplicate imported type names to be allowed when unused: %v", err)
+	}
+}
+
+func TestCheckEntryRejectsBareImportedTypeNameUseFromExplicitPackages(t *testing.T) {
+	root := t.TempDir()
+	depOne := t.TempDir()
+	depTwo := t.TempDir()
+	depOneSrc := `package utilone;
+pub struct Shared { value: int; }`
+	depTwoSrc := `package utiltwo;
+pub struct Shared { value: int; }`
+	if err := os.WriteFile(filepath.Join(depOne, "main.bz"), []byte(depOneSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depTwo, "main.bz"), []byte(depTwoSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utilone", depOne); err != nil {
+		t.Fatalf("add dep utilone: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utiltwo", depTwo); err != nil {
+		t.Fatalf("add dep utiltwo: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "utilone";
+import "utiltwo";
+fn main(): void {
+    let s = Shared { value: 1 };
+    println(s.value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(mainPath)
+	if err == nil {
+		t.Fatalf("expected bare imported type use error")
+	}
+	if !strings.Contains(err.Error(), "unknown type 'Shared'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsQualifiedDisambiguationForDuplicateImportedTypeNames(t *testing.T) {
+	root := t.TempDir()
+	depOne := t.TempDir()
+	depTwo := t.TempDir()
+	depOneSrc := `package utilone;
+pub struct Shared { value: int; }`
+	depTwoSrc := `package utiltwo;
+pub struct Shared { value: int; }`
+	if err := os.WriteFile(filepath.Join(depOne, "main.bz"), []byte(depOneSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depTwo, "main.bz"), []byte(depTwoSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utilone", depOne); err != nil {
+		t.Fatalf("add dep utilone: %v", err)
+	}
+	if err := pkgm.AddDep(root, "utiltwo", depTwo); err != nil {
+		t.Fatalf("add dep utiltwo: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "utilone";
+import "utiltwo";
+fn main(): void {
+    let a: utilone.Shared = utilone.Shared { value: 1 };
+    let b: utiltwo.Shared = utiltwo.Shared { value: 2 };
+    println(a.value);
+    println(b.value);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected qualified imported type disambiguation: %v", err)
+	}
+}
+
+func TestCheckEntryAllowsQualifiedImportedEnumMatchArms(t *testing.T) {
+	root := t.TempDir()
+	depRoot := t.TempDir()
+	depSrc := `package util;
+pub enum Role { Guest, Admin }
+pub fn current(): Role { return Admin; }`
+	if err := os.WriteFile(filepath.Join(depRoot, "main.bz"), []byte(depSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgm.Init(root, "demo"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := pkgm.AddDep(root, "util", depRoot); err != nil {
+		t.Fatalf("add dep: %v", err)
+	}
+	if err := pkgm.Sync(root); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	mainSrc := `package main;
+import "util";
+fn main(): void {
+    let role: util.Role = util.current();
+    match role {
+        util.Guest: { println("guest"); }
+        util.Admin: { println("admin"); }
+    }
+    let label = match role {
+        util.Guest: "guest",
+        util.Admin: "admin",
+    };
+    println(label);
+}`
+	mainPath := filepath.Join(root, "main.bz")
+	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckEntry(mainPath); err != nil {
+		t.Fatalf("expected qualified imported enum match arms: %v", err)
+	}
+	goOut, err := CompileEntryToGo(mainPath)
+	if err != nil {
+		t.Fatalf("go compile failed: %v", err)
+	}
+	if !strings.Contains(goOut, "case Guest:") || !strings.Contains(goOut, "case Admin:") {
+		t.Fatalf("expected normalized match arm cases in go output, got:\n%s", goOut)
+	}
+}
+
+func TestCheckEntrySemanticRangeUsesUnderlineWidth(t *testing.T) {
+	dir := t.TempDir()
+	src := `fn main(): void {
+    println(coutn);
+}`
+	entry := filepath.Join(dir, "main.bz")
+	if err := os.WriteFile(entry, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckEntry(entry)
+	if err == nil {
+		t.Fatalf("expected unknown identifier error")
+	}
+	if !strings.Contains(err.Error(), "^~~~~") {
+		t.Fatalf("expected range underline in diagnostic, got: %v", err)
 	}
 }

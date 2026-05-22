@@ -13,10 +13,15 @@ import (
 	"baziclang/internal/ast"
 	"baziclang/internal/codegen"
 	"baziclang/internal/codegenllvm"
+	"baziclang/internal/diag"
+	"baziclang/internal/hir"
+	"baziclang/internal/intrinsics"
 	"baziclang/internal/lexer"
+	"baziclang/internal/mir"
 	"baziclang/internal/parser"
 	"baziclang/internal/pkgm"
 	"baziclang/internal/sema"
+	"baziclang/internal/source"
 )
 
 type BuildOptions struct {
@@ -33,6 +38,13 @@ func CompileToGo(src string) (string, error) {
 		return "", err
 	}
 	if err := sema.New().Check(prog); err != nil {
+		return "", err
+	}
+	hp, err := hir.Lower(prog)
+	if err != nil {
+		return "", err
+	}
+	if _, err := mir.Lower(hp); err != nil {
 		return "", err
 	}
 	return codegen.GenerateGo(prog)
@@ -78,12 +90,22 @@ func loadEntryProgram(entry string) (*ast.Program, error) {
 	}
 	merged := &ast.Program{}
 	visited := map[string]visitState{}
-	if err := loadFileRecursive(root, entryAbs, merged, visited, nil); err != nil {
+	if err := loadFileRecursive(root, entryAbs, merged, visited, nil, true, "main", "main", map[string]bool{}); err != nil {
+		return nil, err
+	}
+	if err := validateMergedTopLevelSymbols(merged); err != nil {
 		return nil, err
 	}
 	injectSafetyPrelude(merged)
 	if err := sema.New().Check(merged); err != nil {
-		return nil, err
+		return nil, renderProgramError(err)
+	}
+	hp, err := hir.Lower(merged)
+	if err != nil {
+		return nil, renderProgramError(err)
+	}
+	if _, err := mir.Lower(hp); err != nil {
+		return nil, renderProgramError(err)
 	}
 	return merged, nil
 }
@@ -402,7 +424,7 @@ const (
 	visitDone
 )
 
-func loadFileRecursive(root, file string, merged *ast.Program, visited map[string]visitState, stack []string) error {
+func loadFileRecursive(root, file string, merged *ast.Program, visited map[string]visitState, stack []string, isEntry bool, expectedPackage string, packageID string, packageVisibility map[string]bool) error {
 	clean := filepath.Clean(file)
 	switch visited[clean] {
 	case visitDone:
@@ -420,6 +442,17 @@ func loadFileRecursive(root, file string, merged *ast.Program, visited map[strin
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", clean, err)
 	}
+	filePackage, err := validateProgramPackage(prog, isEntry, expectedPackage)
+	if err != nil {
+		return err
+	}
+	explicitVisibility := programHasExplicitPublicDecls(prog)
+	if packageID != "" {
+		packageVisibility[packageID] = packageVisibility[packageID] || explicitVisibility
+	}
+	annotateProgramPackageID(prog, packageID)
+	assignInternalSymbolNames(prog, packageID, expectedPackage == "")
+	applyLegacyPackageVisibility(prog, isEntry, expectedPackage)
 	for _, d := range prog.Decls {
 		imp, ok := d.(*ast.ImportDecl)
 		if !ok {
@@ -429,8 +462,34 @@ func loadFileRecursive(root, file string, merged *ast.Program, visited map[strin
 		if err != nil {
 			return fmt.Errorf("resolve import '%s' in %s: %w", imp.Path, clean, err)
 		}
-		if err := loadFileRecursive(root, resolved, merged, visited, stack); err != nil {
+		nextExpectedPackage := ""
+		nextPackageID := packageID
+		if strings.HasPrefix(imp.Path, ".") {
+			if imp.Alias != "" {
+				return renderProgramError(diag.New("import error", "relative imports cannot declare an alias; they merge into the current package", imp.Span()))
+			}
+			nextExpectedPackage = filePackage
+		} else {
+			nextPackageID = "pkg:" + imp.Path
+		}
+		if err := loadFileRecursive(root, resolved, merged, visited, stack, false, nextExpectedPackage, nextPackageID, packageVisibility); err != nil {
 			return err
+		}
+		if !strings.HasPrefix(imp.Path, ".") {
+			alias := imp.Path
+			if imp.Alias != "" {
+				alias = imp.Alias
+			}
+			if err := recordImportRef(merged, ast.ImportRef{
+				OwnerPackageID:  packageID,
+				Alias:           alias,
+				Path:            imp.Path,
+				TargetPackageID: nextPackageID,
+				ExplicitAlias:   imp.ExplicitAlias,
+				BareAllowed:     !imp.ExplicitAlias && !packageVisibility[nextPackageID],
+			}); err != nil {
+				return renderProgramError(diag.New("import error", err.Error(), imp.Span()))
+			}
 		}
 	}
 	for _, d := range prog.Decls {
@@ -441,6 +500,186 @@ func loadFileRecursive(root, file string, merged *ast.Program, visited map[strin
 	}
 	visited[clean] = visitDone
 	return nil
+}
+
+func validateProgramPackage(prog *ast.Program, isEntry bool, expectedPackage string) (string, error) {
+	if prog == nil {
+		return expectedPackage, nil
+	}
+	declaredPackage := ""
+	if prog.Package != nil {
+		declaredPackage = strings.TrimSpace(prog.Package.Name)
+	}
+	if isEntry {
+		if declaredPackage == "" {
+			declaredPackage = "main"
+		}
+		if declaredPackage != "main" {
+			return "", renderProgramError(diag.New("package error", "entry file must declare 'package main'", prog.Package.Span()))
+		}
+		return declaredPackage, nil
+	}
+	if expectedPackage != "" && declaredPackage != "" && declaredPackage != expectedPackage {
+		return "", renderProgramError(diag.New("package error", fmt.Sprintf("relative import package mismatch: expected package '%s' but found '%s'", expectedPackage, declaredPackage), prog.Package.Span()))
+	}
+	if expectedPackage == "" && declaredPackage == "main" {
+		return "", renderProgramError(diag.New("package error", "imported packages must not declare 'package main'; reserve 'package main' for the entry file", prog.Package.Span()))
+	}
+	if expectedPackage != "" {
+		declaredPackage = expectedPackage
+	}
+	for _, d := range prog.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Name != "main" {
+			continue
+		}
+		return "", renderProgramError(diag.New("import error", "imported files must not declare 'main'; only the entry file may define the program entrypoint", fn.Span()))
+	}
+	return declaredPackage, nil
+}
+
+type topLevelSymbol struct {
+	kind              string
+	span              source.Span
+	packageID         string
+	allowCrossPackage bool
+}
+
+func validateMergedTopLevelSymbols(prog *ast.Program) error {
+	if prog == nil {
+		return nil
+	}
+	seen := map[string]topLevelSymbol{}
+	for _, d := range prog.Decls {
+		symbols := topLevelSymbolsForDecl(d)
+		for _, sym := range symbols {
+			prev, exists := seen[sym.name]
+			if exists {
+				if sym.allowCrossPackage && prev.allowCrossPackage && sym.packageID != "" && prev.packageID != "" && sym.packageID != prev.packageID {
+					continue
+				}
+				msg := fmt.Sprintf(
+					"duplicate top-level symbol '%s'; previously declared as %s in %s:%d:%d",
+					sym.name,
+					prev.kind,
+					displaySourceFile(prev.span.Start.File),
+					prev.span.Start.Line,
+					prev.span.Start.Col,
+				)
+				return renderProgramError(diag.New("import error", msg, sym.span))
+			}
+			seen[sym.name] = topLevelSymbol{kind: sym.kind, span: sym.span, packageID: sym.packageID, allowCrossPackage: sym.allowCrossPackage}
+		}
+	}
+	return nil
+}
+
+type namedTopLevelSymbol struct {
+	name              string
+	kind              string
+	span              source.Span
+	packageID         string
+	allowCrossPackage bool
+}
+
+func topLevelSymbolsForDecl(d ast.Decl) []namedTopLevelSymbol {
+	switch decl := d.(type) {
+	case *ast.StructDecl:
+		return []namedTopLevelSymbol{{name: decl.Name, kind: "struct", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true}}
+	case *ast.InterfaceDecl:
+		return []namedTopLevelSymbol{{name: decl.Name, kind: "interface", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true}}
+	case *ast.EnumDecl:
+		out := []namedTopLevelSymbol{{name: decl.Name, kind: "enum", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true}}
+		for _, variant := range decl.Variants {
+			out = append(out, namedTopLevelSymbol{name: variant, kind: "enum variant", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true})
+		}
+		return out
+	case *ast.FuncDecl:
+		return []namedTopLevelSymbol{{name: decl.Name, kind: "function", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true}}
+	case *ast.GlobalLetDecl:
+		return []namedTopLevelSymbol{{name: decl.Name, kind: "global", span: decl.Span(), packageID: decl.PackageID, allowCrossPackage: true}}
+	default:
+		return nil
+	}
+}
+
+func displaySourceFile(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return "<unknown>"
+	}
+	return path
+}
+
+func recordImportRef(prog *ast.Program, ref ast.ImportRef) error {
+	if prog == nil || ref.Alias == "" || ref.TargetPackageID == "" {
+		return nil
+	}
+	for _, existing := range prog.Imports {
+		if existing.OwnerPackageID == ref.OwnerPackageID && existing.Alias == ref.Alias {
+			if existing.TargetPackageID == ref.TargetPackageID && existing.Path == ref.Path {
+				return nil
+			}
+			return fmt.Errorf("duplicate import alias '%s'", ref.Alias)
+		}
+	}
+	prog.Imports = append(prog.Imports, ref)
+	return nil
+}
+
+func assignInternalSymbolNames(prog *ast.Program, packageID string, aliasImported bool) {
+	if prog == nil {
+		return
+	}
+	for _, decl := range prog.Decls {
+		switch d := decl.(type) {
+		case *ast.StructDecl:
+			if aliasImported {
+				d.InternalName = manglePackageTypeName(packageID, d.Name)
+			} else if d.InternalName == "" {
+				d.InternalName = d.Name
+			}
+		case *ast.InterfaceDecl:
+			if aliasImported {
+				d.InternalName = manglePackageTypeName(packageID, d.Name)
+			} else if d.InternalName == "" {
+				d.InternalName = d.Name
+			}
+		case *ast.EnumDecl:
+			if aliasImported {
+				d.InternalName = manglePackageTypeName(packageID, d.Name)
+			} else if d.InternalName == "" {
+				d.InternalName = d.Name
+			}
+		case *ast.FuncDecl:
+			if aliasImported {
+				d.InternalName = manglePackageSymbol(packageID, d.Name)
+			} else if d.InternalName == "" {
+				d.InternalName = d.Name
+			}
+		case *ast.GlobalLetDecl:
+			if aliasImported {
+				d.InternalName = manglePackageSymbol(packageID, d.Name)
+			} else if d.InternalName == "" {
+				d.InternalName = d.Name
+			}
+		}
+	}
+}
+
+func manglePackageTypeName(packageID, name string) string {
+	return manglePackageSymbol(packageID, name)
+}
+
+func manglePackageSymbol(packageID, name string) string {
+	if packageID == "" {
+		return name
+	}
+	clean := packageID
+	clean = strings.ReplaceAll(clean, "pkg:", "pkg_")
+	clean = strings.ReplaceAll(clean, "/", "_")
+	clean = strings.ReplaceAll(clean, "\\", "_")
+	clean = strings.ReplaceAll(clean, ":", "_")
+	return "__" + clean + "__" + name
 }
 
 func formatImportCycle(stack []string, repeated string) string {
@@ -472,40 +711,34 @@ func parseSourceWithName(src, sourceName string) (*ast.Program, error) {
 	if err != nil {
 		return nil, decorateSourceError(err, src, sourceName)
 	}
+	annotateProgramFile(p, sourceName)
 	return p, nil
 }
 
-var atLineColPattern = regexp.MustCompile(`at (\d+):(\d+)`)
-
 func decorateSourceError(err error, src, sourceName string) error {
-	msg := err.Error()
-	m := atLineColPattern.FindStringSubmatch(msg)
-	if len(m) != 3 {
-		return err
+	derr, ok := diag.Extract(err)
+	if ok && derr.Span.Start.File != "" && derr.Span.Start.File != sourceName {
+		if data, readErr := os.ReadFile(derr.Span.Start.File); readErr == nil {
+			return diag.RenderWithSource(err, string(data), derr.Span.Start.File)
+		}
 	}
-	line, errLine := strconv.Atoi(m[1])
-	col, errCol := strconv.Atoi(m[2])
-	if errLine != nil || errCol != nil || line <= 0 || col <= 0 {
-		return err
-	}
-	lines := strings.Split(src, "\n")
-	if line > len(lines) {
-		return err
-	}
-	text := lines[line-1]
-	caretCol := col
-	if caretCol > len([]rune(text))+1 {
-		caretCol = len([]rune(text)) + 1
-	}
-	spaces := strings.Repeat(" ", max(0, caretCol-1))
-	return fmt.Errorf("%s\n --> %s:%d:%d\n  |\n%3d | %s\n  | %s^", msg, sourceName, line, col, line, text, spaces)
+	return diag.RenderWithSource(err, src, sourceName)
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func renderProgramError(err error) error {
+	derr, ok := diag.Extract(err)
+	if !ok {
+		return err
 	}
-	return b
+	file := strings.TrimSpace(derr.Span.Start.File)
+	if file == "" {
+		return err
+	}
+	data, readErr := os.ReadFile(file)
+	if readErr != nil {
+		return err
+	}
+	return diag.RenderWithSource(err, string(data), file)
 }
 
 func injectSafetyPrelude(p *ast.Program) {
@@ -523,207 +756,222 @@ func injectSafetyPrelude(p *ast.Program) {
 			hasGlobal[g.Name] = true
 		}
 	}
-	prelude := make([]ast.Decl, 0, 9)
-	if !hasGlobal["__bazic_assert_failed"] {
-		prelude = append(prelude, &ast.GlobalLetDecl{
-			Name: "__bazic_assert_failed",
-			Type: ast.TypeBool,
-			Init: &ast.BoolExpr{Value: false},
-		})
-	}
-	if !hasGlobal["__bazic_assert_message"] {
-		prelude = append(prelude, &ast.GlobalLetDecl{
-			Name: "__bazic_assert_message",
-			Type: ast.TypeString,
-			Init: &ast.StringExpr{Value: ""},
-		})
-	}
-	if !hasStruct["Error"] {
-		prelude = append(prelude, &ast.StructDecl{
-			Name: "Error",
-			Fields: []ast.StructField{
-				{Name: "message", Type: ast.TypeString},
-			},
-		})
-	}
-	if !hasStruct["Option"] {
-		prelude = append(prelude, &ast.StructDecl{
-			Name:       "Option",
-			TypeParams: []string{"T"},
-			Fields: []ast.StructField{
-				{Name: "is_some", Type: ast.TypeBool},
-				{Name: "value", Type: ast.Type("T")},
-			},
-		})
-	}
-	if !hasStruct["Result"] {
-		prelude = append(prelude, &ast.StructDecl{
-			Name:       "Result",
-			TypeParams: []string{"T", "E"},
-			Fields: []ast.StructField{
-				{Name: "is_ok", Type: ast.TypeBool},
-				{Name: "value", Type: ast.Type("T")},
-				{Name: "err", Type: ast.Type("E")},
-			},
-		})
-	}
-	if !hasFunc["some"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "some",
-			TypeParams: []string{"T"},
-			Params:     []ast.Param{{Name: "value", Type: ast.Type("T")}},
-			ReturnType: ast.Type("Option[T]"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.ReturnStmt{Value: &ast.StructLitExpr{
-					TypeName: "Option[T]",
-					Fields: []ast.StructLitField{
-						{Name: "is_some", Value: &ast.BoolExpr{Value: true}},
-						{Name: "value", Value: &ast.IdentExpr{Name: "value"}},
-					},
-				}},
-			}},
-		})
-	}
-	if !hasFunc["none"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "none",
-			TypeParams: []string{"T"},
-			Params:     []ast.Param{{Name: "fallback", Type: ast.Type("T")}},
-			ReturnType: ast.Type("Option[T]"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.ReturnStmt{Value: &ast.StructLitExpr{
-					TypeName: "Option[T]",
-					Fields: []ast.StructLitField{
-						{Name: "is_some", Value: &ast.BoolExpr{Value: false}},
-						{Name: "value", Value: &ast.IdentExpr{Name: "fallback"}},
-					},
-				}},
-			}},
-		})
-	}
-	if !hasFunc["ok"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "ok",
-			TypeParams: []string{"T", "E"},
-			Params: []ast.Param{
-				{Name: "value", Type: ast.Type("T")},
-				{Name: "fallback_err", Type: ast.Type("E")},
-			},
-			ReturnType: ast.Type("Result[T,E]"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.ReturnStmt{Value: &ast.StructLitExpr{
-					TypeName: "Result[T,E]",
-					Fields: []ast.StructLitField{
-						{Name: "is_ok", Value: &ast.BoolExpr{Value: true}},
-						{Name: "value", Value: &ast.IdentExpr{Name: "value"}},
-						{Name: "err", Value: &ast.IdentExpr{Name: "fallback_err"}},
-					},
-				}},
-			}},
-		})
-	}
-	if !hasFunc["err"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "err",
-			TypeParams: []string{"T", "E"},
-			Params: []ast.Param{
-				{Name: "fallback_value", Type: ast.Type("T")},
-				{Name: "err_value", Type: ast.Type("E")},
-			},
-			ReturnType: ast.Type("Result[T,E]"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.ReturnStmt{Value: &ast.StructLitExpr{
-					TypeName: "Result[T,E]",
-					Fields: []ast.StructLitField{
-						{Name: "is_ok", Value: &ast.BoolExpr{Value: false}},
-						{Name: "value", Value: &ast.IdentExpr{Name: "fallback_value"}},
-						{Name: "err", Value: &ast.IdentExpr{Name: "err_value"}},
-					},
-				}},
-			}},
-		})
-	}
-	if !hasFunc["assert"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "assert",
-			Params:     []ast.Param{{Name: "cond", Type: ast.TypeBool}},
-			ReturnType: ast.TypeVoid,
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.IfStmt{
-					Cond: &ast.UnaryExpr{Op: "!", Right: &ast.IdentExpr{Name: "cond"}},
-					Then: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.AssignStmt{Target: &ast.IdentExpr{Name: "__bazic_assert_failed"}, Value: &ast.BoolExpr{Value: true}},
-						&ast.AssignStmt{Target: &ast.IdentExpr{Name: "__bazic_assert_message"}, Value: &ast.StringExpr{Value: "assertion failed"}},
-					}},
-				},
-			}},
-		})
-	}
-	if !hasFunc["assert_msg"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name: "assert_msg",
-			Params: []ast.Param{
-				{Name: "cond", Type: ast.TypeBool},
-				{Name: "msg", Type: ast.TypeString},
-			},
-			ReturnType: ast.TypeVoid,
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.IfStmt{
-					Cond: &ast.UnaryExpr{Op: "!", Right: &ast.IdentExpr{Name: "cond"}},
-					Then: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.AssignStmt{Target: &ast.IdentExpr{Name: "__bazic_assert_failed"}, Value: &ast.BoolExpr{Value: true}},
-						&ast.AssignStmt{Target: &ast.IdentExpr{Name: "__bazic_assert_message"}, Value: &ast.IdentExpr{Name: "msg"}},
-					}},
-				},
-			}},
-		})
-	}
-	if !hasFunc["unwrap_or"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "unwrap_or",
-			TypeParams: []string{"T"},
-			Params: []ast.Param{
-				{Name: "opt", Type: ast.Type("Option[T]")},
-				{Name: "fallback", Type: ast.Type("T")},
-			},
-			ReturnType: ast.Type("T"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.IfStmt{
-					Cond: &ast.FieldAccessExpr{Object: &ast.IdentExpr{Name: "opt"}, Field: "is_some"},
-					Then: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.ReturnStmt{Value: &ast.FieldAccessExpr{Object: &ast.IdentExpr{Name: "opt"}, Field: "value"}},
-					}},
-					Else: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.ReturnStmt{Value: &ast.IdentExpr{Name: "fallback"}},
-					}},
-				},
-			}},
-		})
-	}
-	if !hasFunc["result_or"] {
-		prelude = append(prelude, &ast.FuncDecl{
-			Name:       "result_or",
-			TypeParams: []string{"T", "E"},
-			Params: []ast.Param{
-				{Name: "res", Type: ast.Type("Result[T,E]")},
-				{Name: "fallback", Type: ast.Type("T")},
-			},
-			ReturnType: ast.Type("T"),
-			Body: &ast.BlockStmt{Stmts: []ast.Stmt{
-				&ast.IfStmt{
-					Cond: &ast.FieldAccessExpr{Object: &ast.IdentExpr{Name: "res"}, Field: "is_ok"},
-					Then: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.ReturnStmt{Value: &ast.FieldAccessExpr{Object: &ast.IdentExpr{Name: "res"}, Field: "value"}},
-					}},
-					Else: &ast.BlockStmt{Stmts: []ast.Stmt{
-						&ast.ReturnStmt{Value: &ast.IdentExpr{Name: "fallback"}},
-					}},
-				},
-			}},
-		})
-	}
+	prelude := intrinsics.SafetyPreludeDecls(hasStruct, hasFunc, hasGlobal)
 	if len(prelude) == 0 {
 		return
 	}
 	p.Decls = append(prelude, p.Decls...)
+}
+
+func annotateProgramFile(p *ast.Program, file string) {
+	if p == nil || file == "" {
+		return
+	}
+	p.NodeInfo.Range = p.NodeInfo.Range.WithFile(file)
+	if p.Package != nil {
+		p.Package.NodeInfo.Range = p.Package.NodeInfo.Range.WithFile(file)
+	}
+	for _, decl := range p.Decls {
+		annotateDeclFile(decl, file)
+	}
+}
+
+func annotateProgramPackageID(p *ast.Program, packageID string) {
+	if p == nil {
+		return
+	}
+	for _, decl := range p.Decls {
+		switch d := decl.(type) {
+		case *ast.StructDecl:
+			d.PackageID = packageID
+		case *ast.InterfaceDecl:
+			d.PackageID = packageID
+		case *ast.ImplDecl:
+			d.PackageID = packageID
+		case *ast.EnumDecl:
+			d.PackageID = packageID
+		case *ast.FuncDecl:
+			d.PackageID = packageID
+		case *ast.GlobalLetDecl:
+			d.PackageID = packageID
+		}
+	}
+}
+
+func applyLegacyPackageVisibility(p *ast.Program, isEntry bool, expectedPackage string) {
+	if p == nil || isEntry || expectedPackage != "" || programHasExplicitPublicDecls(p) {
+		return
+	}
+	for _, decl := range p.Decls {
+		switch d := decl.(type) {
+		case *ast.StructDecl:
+			d.Public = true
+		case *ast.InterfaceDecl:
+			d.Public = true
+		case *ast.EnumDecl:
+			d.Public = true
+		case *ast.FuncDecl:
+			d.Public = true
+		case *ast.GlobalLetDecl:
+			d.Public = true
+		}
+	}
+}
+
+func programHasExplicitPublicDecls(p *ast.Program) bool {
+	if p == nil {
+		return false
+	}
+	for _, decl := range p.Decls {
+		switch d := decl.(type) {
+		case *ast.StructDecl:
+			if d.Public {
+				return true
+			}
+		case *ast.InterfaceDecl:
+			if d.Public {
+				return true
+			}
+		case *ast.EnumDecl:
+			if d.Public {
+				return true
+			}
+		case *ast.FuncDecl:
+			if d.Public {
+				return true
+			}
+		case *ast.GlobalLetDecl:
+			if d.Public {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func annotateDeclFile(d ast.Decl, file string) {
+	switch decl := d.(type) {
+	case *ast.ImportDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+	case *ast.StructDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+		for i := range decl.Fields {
+			decl.Fields[i].Range = decl.Fields[i].Range.WithFile(file)
+		}
+	case *ast.InterfaceDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+		for i := range decl.Methods {
+			decl.Methods[i].Range = decl.Methods[i].Range.WithFile(file)
+			for j := range decl.Methods[i].Params {
+				decl.Methods[i].Params[j].Range = decl.Methods[i].Params[j].Range.WithFile(file)
+			}
+		}
+	case *ast.ImplDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+	case *ast.EnumDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+	case *ast.FuncDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+		for i := range decl.Params {
+			decl.Params[i].Range = decl.Params[i].Range.WithFile(file)
+		}
+		annotateBlockFile(decl.Body, file)
+	case *ast.GlobalLetDecl:
+		decl.NodeInfo.Range = decl.NodeInfo.Range.WithFile(file)
+		annotateExprFile(decl.Init, file)
+	}
+}
+
+func annotateBlockFile(b *ast.BlockStmt, file string) {
+	if b == nil {
+		return
+	}
+	b.NodeInfo.Range = b.NodeInfo.Range.WithFile(file)
+	for _, stmt := range b.Stmts {
+		annotateStmtFile(stmt, file)
+	}
+}
+
+func annotateStmtFile(s ast.Stmt, file string) {
+	switch st := s.(type) {
+	case *ast.BlockStmt:
+		annotateBlockFile(st, file)
+	case *ast.LetStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Init, file)
+	case *ast.AssignStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Target, file)
+		annotateExprFile(st.Value, file)
+	case *ast.IfStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Cond, file)
+		annotateBlockFile(st.Then, file)
+		annotateBlockFile(st.Else, file)
+	case *ast.WhileStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Cond, file)
+		annotateBlockFile(st.Body, file)
+	case *ast.MatchStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Subject, file)
+		for i := range st.Arms {
+			st.Arms[i].Range = st.Arms[i].Range.WithFile(file)
+			annotateExprFile(st.Arms[i].Guard, file)
+			annotateBlockFile(st.Arms[i].Body, file)
+		}
+	case *ast.ReturnStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Value, file)
+	case *ast.ExprStmt:
+		st.NodeInfo.Range = st.NodeInfo.Range.WithFile(file)
+		annotateExprFile(st.Expr, file)
+	}
+}
+
+func annotateExprFile(e ast.Expr, file string) {
+	switch ex := e.(type) {
+	case *ast.IdentExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.IntExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.FloatExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.BoolExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.StringExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.NilExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+	case *ast.UnaryExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		annotateExprFile(ex.Right, file)
+	case *ast.BinaryExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		annotateExprFile(ex.Left, file)
+		annotateExprFile(ex.Right, file)
+	case *ast.CallExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		annotateExprFile(ex.Receiver, file)
+		for _, arg := range ex.Args {
+			annotateExprFile(arg, file)
+		}
+	case *ast.FieldAccessExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		annotateExprFile(ex.Object, file)
+	case *ast.StructLitExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		for i := range ex.Fields {
+			ex.Fields[i].Range = ex.Fields[i].Range.WithFile(file)
+			annotateExprFile(ex.Fields[i].Value, file)
+		}
+	case *ast.MatchExpr:
+		ex.NodeInfo.Range = ex.NodeInfo.Range.WithFile(file)
+		annotateExprFile(ex.Subject, file)
+		for i := range ex.Arms {
+			ex.Arms[i].Range = ex.Arms[i].Range.WithFile(file)
+			annotateExprFile(ex.Arms[i].Guard, file)
+			annotateExprFile(ex.Arms[i].Value, file)
+		}
+	}
 }

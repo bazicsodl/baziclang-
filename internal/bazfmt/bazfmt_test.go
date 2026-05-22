@@ -63,6 +63,50 @@ fn main():void{const u=User{name:"a"};u.name="b"}`
 	}
 }
 
+func TestFormatPreservesPackageDecl(t *testing.T) {
+	src := `package main;
+fn main():void{println("ok")}`
+	out, err := Format(src)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if !strings.HasPrefix(out, "package main\n\n") {
+		t.Fatalf("expected package declaration at top of formatted output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "fn main(): void {") {
+		t.Fatalf("expected formatted main function, got:\n%s", out)
+	}
+}
+
+func TestFormatPreservesPubDecls(t *testing.T) {
+	src := `package util;
+pub fn helper():int{return 1}
+pub const answer=42`
+	out, err := Format(src)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if !strings.Contains(out, "pub fn helper(): int {") {
+		t.Fatalf("expected public function formatting, got:\n%s", out)
+	}
+	if !strings.Contains(out, "pub const answer:") && !strings.Contains(out, "pub const answer = 42") {
+		t.Fatalf("expected public const formatting, got:\n%s", out)
+	}
+}
+
+func TestFormatPreservesImportAliases(t *testing.T) {
+	src := `package main;
+import "util" as tools;
+fn main():void{println(tools.answer)}`
+	out, err := Format(src)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if !strings.Contains(out, "import \"util\" as tools") {
+		t.Fatalf("expected import alias formatting, got:\n%s", out)
+	}
+}
+
 func TestCollectBZFilesRecursiveAndSkipsInternalDirs(t *testing.T) {
 	root := t.TempDir()
 	mustWrite := func(path, body string) {

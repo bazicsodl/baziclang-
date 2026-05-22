@@ -29,6 +29,9 @@ fn render_page(page: string, clicks: int, name: string): string {
     if (page == "form") {
         return form_page(clicks, name)
     }
+    if (page == "home") {
+        return page_home(clicks, name)
+    }
     return page_home(clicks, name)
 }
 

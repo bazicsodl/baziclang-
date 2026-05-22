@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"baziclang/internal/ast"
+	baztypes "baziclang/internal/types"
 )
 
 type monoCtx struct {
@@ -34,7 +35,12 @@ func monomorphizeProgram(p *ast.Program) *ast.Program {
 	m.indexDecls()
 	m.emitNonGenericDecls()
 	m.processFunctions()
-	return &ast.Program{Decls: m.outDecls}
+	return &ast.Program{
+		NodeInfo: p.NodeInfo,
+		Package:  p.Package,
+		Imports:  append([]ast.ImportRef{}, p.Imports...),
+		Decls:    m.outDecls,
+	}
 }
 
 func (m *monoCtx) indexDecls() {
@@ -43,14 +49,26 @@ func (m *monoCtx) indexDecls() {
 		case *ast.StructDecl:
 			if len(decl.TypeParams) > 0 {
 				m.genericStructs[decl.Name] = decl
+				if decl.InternalName != "" {
+					m.genericStructs[decl.InternalName] = decl
+				}
 			} else {
 				m.structs[decl.Name] = decl
+				if decl.InternalName != "" {
+					m.structs[decl.InternalName] = decl
+				}
 			}
 		case *ast.FuncDecl:
 			if len(decl.TypeParams) > 0 {
 				m.genericFuncs[decl.Name] = decl
+				if decl.InternalName != "" {
+					m.genericFuncs[decl.InternalName] = decl
+				}
 			} else {
 				m.funcs[decl.Name] = decl
+				if decl.InternalName != "" {
+					m.funcs[decl.InternalName] = decl
+				}
 			}
 		case *ast.EnumDecl:
 			vars := map[string]bool{}
@@ -58,6 +76,9 @@ func (m *monoCtx) indexDecls() {
 				vars[v] = true
 			}
 			m.enums[decl.Name] = vars
+			if decl.InternalName != "" {
+				m.enums[decl.InternalName] = vars
+			}
 		}
 	}
 }
@@ -71,6 +92,9 @@ func (m *monoCtx) emitNonGenericDecls() {
 			if len(decl.TypeParams) == 0 {
 				m.outDecls = append(m.outDecls, d)
 				m.emittedStructs[decl.Name] = true
+				if decl.InternalName != "" {
+					m.emittedStructs[decl.InternalName] = true
+				}
 			}
 		case *ast.GlobalLetDecl:
 			newDecl, _ := m.rewriteGlobal(decl, nil)
@@ -79,7 +103,7 @@ func (m *monoCtx) emitNonGenericDecls() {
 			if len(decl.TypeParams) == 0 {
 				newFn := m.rewriteFunc(decl, nil)
 				m.outDecls = append(m.outDecls, newFn)
-				m.emittedFuncs[newFn.Name] = true
+				m.markFuncEmitted(newFn)
 			}
 		}
 	}
@@ -94,9 +118,13 @@ func (m *monoCtx) processFunctions() {
 			if m.emittedFuncs[name] {
 				continue
 			}
+			if fn != nil && fn.InternalName != "" && m.emittedFuncs[fn.InternalName] {
+				m.markFuncEmitted(fn)
+				continue
+			}
 			newFn := m.rewriteFunc(fn, nil)
 			m.outDecls = append(m.outDecls, newFn)
-			m.emittedFuncs[name] = true
+			m.markFuncEmitted(newFn)
 			changed = true
 		}
 		for name, fn := range m.genericFuncs {
@@ -116,10 +144,14 @@ func (m *monoCtx) rewriteGlobal(g *ast.GlobalLetDecl, mapping map[string]ast.Typ
 	}
 	normType := m.normalizeType(rawType)
 	return &ast.GlobalLetDecl{
-		Name: g.Name,
-		Type: normType,
-		Init: expr,
-		IsConst: g.IsConst,
+		NodeInfo:     g.NodeInfo,
+		Public:       g.Public,
+		PackageID:    g.PackageID,
+		Name:         g.Name,
+		InternalName: g.InternalName,
+		Type:         normType,
+		Init:         expr,
+		IsConst:      g.IsConst,
 	}, normType
 }
 
@@ -136,11 +168,15 @@ func (m *monoCtx) rewriteFunc(fn *ast.FuncDecl, mapping map[string]ast.Type) *as
 	normRet := m.normalizeType(rawRet)
 	body := m.rewriteBlock(fn.Body, mapping, env)
 	return &ast.FuncDecl{
-		Name:       fn.Name,
-		TypeParams: nil,
-		Params:     params,
-		ReturnType: normRet,
-		Body:       body,
+		NodeInfo:     fn.NodeInfo,
+		Public:       fn.Public,
+		PackageID:    fn.PackageID,
+		Name:         fn.Name,
+		InternalName: fn.InternalName,
+		TypeParams:   nil,
+		Params:       params,
+		ReturnType:   normRet,
+		Body:         body,
 	}
 }
 
@@ -254,7 +290,7 @@ func (m *monoCtx) rewriteExpr(e ast.Expr, mapping map[string]ast.Type, env map[s
 	case *ast.FieldAccessExpr:
 		obj, objType := m.rewriteExpr(ex.Object, mapping, env)
 		fieldType := m.structFieldType(objType, ex.Field)
-		return &ast.FieldAccessExpr{Object: obj, Field: ex.Field}, fieldType
+		return &ast.FieldAccessExpr{NodeInfo: ex.NodeInfo, Object: obj, Field: ex.Field, ResolvedGlobal: ex.ResolvedGlobal}, fieldType
 	case *ast.CallExpr:
 		args := make([]ast.Expr, 0, len(ex.Args))
 		argTypes := make([]ast.Type, 0, len(ex.Args))
@@ -297,7 +333,7 @@ func (m *monoCtx) structFieldType(rawStruct ast.Type, field string) ast.Type {
 	if rawStruct == ast.TypeInvalid {
 		return ast.TypeInvalid
 	}
-	base, args, ok := splitGenericType(string(rawStruct))
+	base, args, ok := baztypes.SplitGenericTypeStrings(string(rawStruct))
 	if ok {
 		generic := m.genericStructs[base]
 		if generic == nil {
@@ -346,6 +382,7 @@ func (m *monoCtx) specializeFunc(fn *ast.FuncDecl, mapping map[string]ast.Type) 
 	}
 	clone := m.rewriteFuncWithName(fn, mapping, specName)
 	m.outDecls = append(m.outDecls, clone)
+	m.markFuncEmitted(clone)
 	m.emittedFuncs[specName] = true
 	m.funcs[specName] = clone
 	return specName
@@ -364,11 +401,15 @@ func (m *monoCtx) rewriteFuncWithName(fn *ast.FuncDecl, mapping map[string]ast.T
 	normRet := m.normalizeType(rawRet)
 	body := m.rewriteBlock(fn.Body, mapping, env)
 	return &ast.FuncDecl{
-		Name:       name,
-		TypeParams: nil,
-		Params:     params,
-		ReturnType: normRet,
-		Body:       body,
+		NodeInfo:     fn.NodeInfo,
+		Public:       fn.Public,
+		PackageID:    fn.PackageID,
+		Name:         name,
+		InternalName: name,
+		TypeParams:   nil,
+		Params:       params,
+		ReturnType:   normRet,
+		Body:         body,
 	}
 }
 
@@ -379,7 +420,7 @@ func (m *monoCtx) normalizeType(t ast.Type) ast.Type {
 	if _, ok := m.enums[string(t)]; ok {
 		return t
 	}
-	base, args, ok := splitGenericType(string(t))
+	base, args, ok := baztypes.SplitGenericTypeStrings(string(t))
 	if ok {
 		for i := range args {
 			args[i] = string(m.normalizeType(ast.Type(args[i])))
@@ -414,6 +455,10 @@ func (m *monoCtx) ensureStruct(base string, args []string) string {
 	m.outDecls = append(m.outDecls, decl)
 	m.emittedStructs[name] = true
 	m.structs[name] = decl
+	if decl.InternalName != "" {
+		m.structs[decl.InternalName] = decl
+		m.emittedStructs[decl.InternalName] = true
+	}
 	return name
 }
 
@@ -429,7 +474,7 @@ func encodeTypeForName(t ast.Type) string {
 	if t == "" {
 		return "unknown"
 	}
-	base, args, ok := splitGenericType(string(t))
+	base, args, ok := baztypes.SplitGenericTypeStrings(string(t))
 	if ok {
 		parts := []string{base}
 		for _, a := range args {
@@ -468,7 +513,7 @@ func substituteType(t ast.Type, mapping map[string]ast.Type) ast.Type {
 	if v, ok := mapping[string(t)]; ok {
 		return v
 	}
-	base, args, ok := splitGenericType(string(t))
+	base, args, ok := baztypes.SplitGenericTypeStrings(string(t))
 	if !ok {
 		return t
 	}
@@ -479,44 +524,14 @@ func substituteType(t ast.Type, mapping map[string]ast.Type) ast.Type {
 	return ast.Type(fmt.Sprintf("%s[%s]", base, strings.Join(outArgs, ",")))
 }
 
-func splitGenericType(t string) (string, []string, bool) {
-	open := strings.IndexRune(t, '[')
-	close := strings.LastIndex(t, "]")
-	if open <= 0 || close <= open {
-		return "", nil, false
-	}
-	base := t[:open]
-	inner := t[open+1 : close]
-	parts := splitTopLevel(inner)
-	if len(parts) == 0 {
-		return "", nil, false
-	}
-	return base, parts, true
-}
-
 func splitTopLevel(s string) []string {
-	depth := 0
-	parts := []string{}
-	start := 0
-	for i, r := range s {
-		switch r {
-		case '[':
-			depth++
-		case ']':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(s[start:i]))
-				start = i + 1
-			}
-		}
+	args, ok := baztypes.Args(ast.Type("X[" + s + "]"))
+	if !ok {
+		return nil
 	}
-	parts = append(parts, strings.TrimSpace(s[start:]))
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, string(arg))
 	}
 	return out
 }
@@ -528,9 +543,9 @@ func unifyType(expected ast.Type, actual ast.Type, mapping map[string]ast.Type) 
 	if _, ok := mapping[string(expected)]; ok {
 		return
 	}
-	base, args, ok := splitGenericType(string(expected))
+	base, args, ok := baztypes.SplitGenericTypeStrings(string(expected))
 	if ok {
-		abase, aargs, aok := splitGenericType(string(actual))
+		abase, aargs, aok := baztypes.SplitGenericTypeStrings(string(actual))
 		if !aok || abase != base || len(args) != len(aargs) {
 			return
 		}
@@ -548,4 +563,14 @@ func cloneEnv(env map[string]ast.Type) map[string]ast.Type {
 		out[k] = v
 	}
 	return out
+}
+
+func (m *monoCtx) markFuncEmitted(fn *ast.FuncDecl) {
+	if fn == nil {
+		return
+	}
+	m.emittedFuncs[fn.Name] = true
+	if fn.InternalName != "" {
+		m.emittedFuncs[fn.InternalName] = true
+	}
 }

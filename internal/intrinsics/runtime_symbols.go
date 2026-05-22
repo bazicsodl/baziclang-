@@ -1,0 +1,28 @@
+package intrinsics
+
+const (
+	PreludeAssertFailedGlobal  = "__bazic_assert_failed"
+	PreludeAssertMessageGlobal = "__bazic_assert_message"
+	LLVMRuntimeSetArgsFunc     = "__bazic_set_args"
+	LLVMRuntimeInitGlobalsFunc = "__bazic_init_globals"
+	LLVMRuntimeRouteType       = "bazic_route"
+	LLVMRuntimeRoutesGlobal    = "__bazic_routes"
+	LLVMRuntimeRoutesLenGlobal = "__bazic_routes_len"
+	LLVMRuntimeLenFunc         = "bazic_len"
+	LLVMRuntimeContainsFunc    = "bazic_contains"
+	LLVMRuntimeStartsWithFunc  = "bazic_starts_with"
+	LLVMRuntimeEndsWithFunc    = "bazic_ends_with"
+	LLVMRuntimeToUpperFunc     = "bazic_to_upper"
+	LLVMRuntimeToLowerFunc     = "bazic_to_lower"
+	LLVMRuntimeTrimSpaceFunc   = "bazic_trim_space"
+	LLVMRuntimeRepeatFunc      = "bazic_repeat"
+	LLVMRuntimeReplaceFunc     = "bazic_replace"
+	LLVMRuntimeIntToStrFunc    = "bazic_int_to_str"
+	LLVMRuntimeFloatToStrFunc  = "bazic_float_to_str"
+	LLVMRuntimeParseIntFunc    = "bazic_parse_int"
+	LLVMRuntimeParseFloatFunc  = "bazic_parse_float"
+	LLVMRuntimeStrConcatFunc   = "bazic_str_concat"
+	LLVMRuntimeStrCmpFunc      = "bazic_str_cmp"
+	LLVMRuntimeAnyToStrFunc    = "bazic_any_to_str"
+	LLVMRuntimeAnyEqFunc       = "bazic_any_eq"
+)

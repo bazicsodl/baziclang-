@@ -1,7 +1,7 @@
 import "std"
 
 
-fn page_components(clicks: int, name: string): string {
+fn page_components(clicks: int, _: string): string {
     let list = ui_list(ui_children_three(ui_list_item("Card + Badge"), ui_list_item("List items"), ui_list_item("Modal overlay")))
     let card = ui_card("Components", list)
     let tab = ui_state_get("tab", "overview")
@@ -30,32 +30,32 @@ fn page_components(clicks: int, name: string): string {
     let row2 = ui_table_row(ui_children_three(ui_table_cell("Cache"), ui_table_cell("Warm"), ui_table_cell("18ms")))
     let row3 = ui_table_row(ui_children_three(ui_table_cell("Queue"), ui_table_cell("Draining"), ui_table_cell("340ms")))
     let empty_on = (ui_state_get("table.empty", "false") == "true")
-    let body = ui_children_three(row1, row2, row3)
+    let table_body = ui_children_three(row1, row2, row3)
     if ((sort == "latency") && (sort_dir == "asc")) {
-        body = ui_children_three(row2, row1, row3)
+        table_body = ui_children_three(row2, row1, row3)
     }
     if ((sort == "latency") && (sort_dir == "desc")) {
-        body = ui_children_three(row3, row1, row2)
+        table_body = ui_children_three(row3, row1, row2)
     }
     if ((sort == "status") && (sort2_dir == "asc")) {
-        body = ui_children_three(row3, row1, row2)
+        table_body = ui_children_three(row3, row1, row2)
     }
     if ((sort == "status") && (sort2_dir == "desc")) {
-        body = ui_children_three(row2, row1, row3)
+        table_body = ui_children_three(row2, row1, row3)
     }
     if ((sort == "latency+status") && (sort_dir == "asc")) {
-        body = ui_children_three(row2, row1, row3)
+        table_body = ui_children_three(row2, row1, row3)
     }
     if ((sort == "latency+status") && (sort_dir == "desc")) {
-        body = ui_children_three(row3, row1, row2)
+        table_body = ui_children_three(row3, row1, row2)
     }
     if empty_on {
-        body = ui_children_one(ui_table_row(ui_children_one(ui_table_cell_span("No results", 3))))
+        table_body = ui_children_one(ui_table_row(ui_children_one(ui_table_cell_span("No results", 3))))
     }
-    let table = ui_table(head, body)
-    let striped = ui_table_class(head, body, "striped")
+    let table = ui_table(head, table_body)
+    let striped = ui_table_class(head, table_body, "striped")
     let table_actions = ui_element("div", ui_props("", "row"), ui_children_two(ui_button("Toggle Empty", "table-empty", "ghost"), ui_button("Reset Sort", "table-sort-reset", "ghost")))
-    let empty = ui_empty("No results")
+    let _ = ui_empty("No results")
     let table_card = ui_card("Table", ui_element("div", ui_props("", "stack"), ui_children_three(table_actions, table, striped)))
     let toast_msg = ui_state_get("toast", "")
     let toast_stack = ui_element("div", ui_props("", "toast hidden"), ui_children_one(ui_text("")))
@@ -76,14 +76,14 @@ fn page_components(clicks: int, name: string): string {
     let opt1 = ui_option("starter", "Starter", (plan == "starter"))
     let opt2 = ui_option("team", "Team", (plan == "team"))
     let opt3 = ui_option("enterprise", "Enterprise", (plan == "enterprise"))
-    let select = ui_select("plan", "select", ui_children_three(opt1, opt2, opt3))
+    let plan_select = ui_select("plan", "select", ui_children_three(opt1, opt2, opt3))
     let menu_open = (ui_state_get("menu.open", "false") == "true")
     let menu_pick = ui_state_get("menu.pick", "Starter")
     let menu = ui_dropdown(menu_pick, "menu-toggle", menu_open, ui_children_three(ui_menu_item("Starter", "menu-starter", (menu_pick == "Starter")), ui_menu_item("Team", "menu-team", (menu_pick == "Team")), ui_menu_item("Enterprise", "menu-enterprise", (menu_pick == "Enterprise"))))
     let opt_in = ui_checkbox("opt-in", "checkbox", (ui_state_get("opt-in", "false") == "true"))
     let dark = ui_switch("dark-mode", (ui_state_get("dark-mode", "false") == "true"))
     let volume = ui_range("volume", ui_state_int_get("volume", 30), 0, 100)
-    let form = ui_element("div", ui_props("", "stack"), ui_children_four(ui_form_row("Note", input), ui_form_row("Plan", select), ui_form_row("Opt-in", opt_in), ui_form_row("Volume", volume)))
+    let form = ui_element("div", ui_props("", "stack"), ui_children_four(ui_form_row("Note", input), ui_form_row("Plan", plan_select), ui_form_row("Opt-in", opt_in), ui_form_row("Volume", volume)))
     let toggles = ui_element("div", ui_props("", "stack"), ui_children_two(ui_form_row("Dark mode", dark), focus_btn))
     let store_card = ui_card("Store + Form", form)
     let menu_card = ui_card("Dropdown", menu)
@@ -93,6 +93,6 @@ fn page_components(clicks: int, name: string): string {
     let row_a = ui_element("div", ui_props("", "stack"), ui_children_three(card, tab_card, table_card))
     let row_b = ui_element("div", ui_props("", "stack"), ui_children_three(toast_card, store_card, toggle_card))
     let row_c = ui_element("div", ui_props("", "stack"), ui_children_two(menu_card, modal))
-    let body = ui_element("div", ui_props("", "stack"), ui_children_three(row_a, row_b, row_c))
-    return ui_section("Components", body)
+    let page_body = ui_element("div", ui_props("", "stack"), ui_children_three(row_a, row_b, row_c))
+    return ui_section("Components", page_body)
 }

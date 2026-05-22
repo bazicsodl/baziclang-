@@ -3,6 +3,9 @@ package lexer
 import (
 	"fmt"
 	"unicode"
+
+	"baziclang/internal/diag"
+	"baziclang/internal/source"
 )
 
 type TokenKind string
@@ -15,6 +18,9 @@ const (
 	String TokenKind = "STRING"
 
 	KwImport    TokenKind = "import"
+	KwAs        TokenKind = "as"
+	KwPackage   TokenKind = "package"
+	KwPub       TokenKind = "pub"
 	KwStruct    TokenKind = "struct"
 	KwEnum      TokenKind = "enum"
 	KwInterface TokenKind = "interface"
@@ -64,6 +70,7 @@ type Token struct {
 	Lexeme string
 	Line   int
 	Col    int
+	Span   source.Span
 }
 
 type Lexer struct {
@@ -80,6 +87,26 @@ func New(input string) *Lexer {
 	return &Lexer{src: []rune(input), line: 1, col: 1}
 }
 
+func (l *Lexer) newToken(kind TokenKind, lexeme string, startOffset, startLine, startCol int) Token {
+	return Token{
+		Kind:   kind,
+		Lexeme: lexeme,
+		Line:   startLine,
+		Col:    startCol,
+		Span:   source.Range(startOffset, startLine, startCol, l.pos, l.line, l.col),
+	}
+}
+
+func (l *Lexer) pointToken(kind TokenKind, lexeme string) Token {
+	return Token{
+		Kind:   kind,
+		Lexeme: lexeme,
+		Line:   l.line,
+		Col:    l.col,
+		Span:   source.Point(l.pos, l.line, l.col),
+	}
+}
+
 func (l *Lexer) Tokenize() ([]Token, error) {
 	tokens := make([]Token, 0, len(l.src)/2)
 	for !l.isAtEnd() {
@@ -87,7 +114,7 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 		if unicode.IsSpace(ch) {
 			sawNewline := l.consumeWhitespace()
 			if sawNewline && l.canInsertSemicolon() {
-				tokens = append(tokens, Token{Kind: Semicolon, Lexeme: ";", Line: l.line, Col: l.col})
+				tokens = append(tokens, l.pointToken(Semicolon, ";"))
 				l.last = Semicolon
 				continue
 			}
@@ -103,17 +130,17 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 			}
 			continue
 		}
-		startLine, startCol := l.line, l.col
+		startOffset, startLine, startCol := l.pos, l.line, l.col
 		if unicode.IsLetter(ch) || ch == '_' {
 			ident := l.consumeIdent()
 			kind := keywordOrIdent(ident)
-			tokens = append(tokens, Token{Kind: kind, Lexeme: ident, Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(kind, ident, startOffset, startLine, startCol))
 			l.last = kind
 			continue
 		}
 		if unicode.IsDigit(ch) {
 			kind, lit := l.consumeNumber()
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lit, Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(kind, lit, startOffset, startLine, startCol))
 			l.last = kind
 			continue
 		}
@@ -123,134 +150,134 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 			if err != nil {
 				return nil, err
 			}
-			tokens = append(tokens, Token{Kind: String, Lexeme: str, Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(String, str, startOffset, startLine, startCol))
 			l.last = String
 		case '(':
 			l.advance()
-			tokens = append(tokens, Token{Kind: LParen, Lexeme: "(", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(LParen, "(", startOffset, startLine, startCol))
 			l.last = LParen
 			l.parenDepth++
 		case ')':
 			l.advance()
-			tokens = append(tokens, Token{Kind: RParen, Lexeme: ")", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(RParen, ")", startOffset, startLine, startCol))
 			l.last = RParen
 			if l.parenDepth > 0 {
 				l.parenDepth--
 			}
 		case '{':
 			l.advance()
-			tokens = append(tokens, Token{Kind: LBrace, Lexeme: "{", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(LBrace, "{", startOffset, startLine, startCol))
 			l.last = LBrace
 		case '}':
 			l.advance()
-			tokens = append(tokens, Token{Kind: RBrace, Lexeme: "}", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(RBrace, "}", startOffset, startLine, startCol))
 			l.last = RBrace
 		case '[':
 			l.advance()
-			tokens = append(tokens, Token{Kind: LBracket, Lexeme: "[", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(LBracket, "[", startOffset, startLine, startCol))
 			l.last = LBracket
 			l.bracketDepth++
 		case ']':
 			l.advance()
-			tokens = append(tokens, Token{Kind: RBracket, Lexeme: "]", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(RBracket, "]", startOffset, startLine, startCol))
 			l.last = RBracket
 			if l.bracketDepth > 0 {
 				l.bracketDepth--
 			}
 		case ',':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Comma, Lexeme: ",", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Comma, ",", startOffset, startLine, startCol))
 			l.last = Comma
 		case ';':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Semicolon, Lexeme: ";", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Semicolon, ";", startOffset, startLine, startCol))
 			l.last = Semicolon
 		case ':':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Colon, Lexeme: ":", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Colon, ":", startOffset, startLine, startCol))
 			l.last = Colon
 		case '.':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Dot, Lexeme: ".", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Dot, ".", startOffset, startLine, startCol))
 			l.last = Dot
 		case '+':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Plus, Lexeme: "+", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Plus, "+", startOffset, startLine, startCol))
 			l.last = Plus
 		case '-':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Minus, Lexeme: "-", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Minus, "-", startOffset, startLine, startCol))
 			l.last = Minus
 		case '*':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Star, Lexeme: "*", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Star, "*", startOffset, startLine, startCol))
 			l.last = Star
 		case '%':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Percent, Lexeme: "%", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Percent, "%", startOffset, startLine, startCol))
 			l.last = Percent
 		case '/':
 			l.advance()
-			tokens = append(tokens, Token{Kind: Slash, Lexeme: "/", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(Slash, "/", startOffset, startLine, startCol))
 			l.last = Slash
 		case '!':
 			l.advance()
 			if l.match('=') {
-				tokens = append(tokens, Token{Kind: NotEq, Lexeme: "!=", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(NotEq, "!=", startOffset, startLine, startCol))
 				l.last = NotEq
 			} else {
-				tokens = append(tokens, Token{Kind: Bang, Lexeme: "!", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(Bang, "!", startOffset, startLine, startCol))
 				l.last = Bang
 			}
 		case '=':
 			l.advance()
 			if l.match('=') {
-				tokens = append(tokens, Token{Kind: EqEq, Lexeme: "==", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(EqEq, "==", startOffset, startLine, startCol))
 				l.last = EqEq
 			} else {
-				tokens = append(tokens, Token{Kind: Equal, Lexeme: "=", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(Equal, "=", startOffset, startLine, startCol))
 				l.last = Equal
 			}
 		case '<':
 			l.advance()
 			if l.match('=') {
-				tokens = append(tokens, Token{Kind: LessEq, Lexeme: "<=", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(LessEq, "<=", startOffset, startLine, startCol))
 				l.last = LessEq
 			} else {
-				tokens = append(tokens, Token{Kind: Less, Lexeme: "<", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(Less, "<", startOffset, startLine, startCol))
 				l.last = Less
 			}
 		case '>':
 			l.advance()
 			if l.match('=') {
-				tokens = append(tokens, Token{Kind: GreaterEq, Lexeme: ">=", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(GreaterEq, ">=", startOffset, startLine, startCol))
 				l.last = GreaterEq
 			} else {
-				tokens = append(tokens, Token{Kind: Greater, Lexeme: ">", Line: startLine, Col: startCol})
+				tokens = append(tokens, l.newToken(Greater, ">", startOffset, startLine, startCol))
 				l.last = Greater
 			}
 		case '&':
 			l.advance()
 			if !l.match('&') {
-				return nil, l.errAt(startLine, startCol, "expected '&' after '&'")
+				return nil, l.errAt(startOffset, startLine, startCol, "expected '&' after '&'")
 			}
-			tokens = append(tokens, Token{Kind: AndAnd, Lexeme: "&&", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(AndAnd, "&&", startOffset, startLine, startCol))
 			l.last = AndAnd
 		case '|':
 			l.advance()
 			if !l.match('|') {
-				return nil, l.errAt(startLine, startCol, "expected '|' after '|'")
+				return nil, l.errAt(startOffset, startLine, startCol, "expected '|' after '|'")
 			}
-			tokens = append(tokens, Token{Kind: OrOr, Lexeme: "||", Line: startLine, Col: startCol})
+			tokens = append(tokens, l.newToken(OrOr, "||", startOffset, startLine, startCol))
 			l.last = OrOr
 		default:
-			return nil, l.errAt(startLine, startCol, fmt.Sprintf("unexpected character '%c'", ch))
+			return nil, l.errAt(startOffset, startLine, startCol, "unexpected character '%c'", ch)
 		}
 	}
 	if l.canInsertSemicolon() && l.last != Semicolon {
-		tokens = append(tokens, Token{Kind: Semicolon, Lexeme: ";", Line: l.line, Col: l.col})
+		tokens = append(tokens, l.pointToken(Semicolon, ";"))
 	}
-	tokens = append(tokens, Token{Kind: EOF, Lexeme: "", Line: l.line, Col: l.col})
+	tokens = append(tokens, l.pointToken(EOF, ""))
 	return tokens, nil
 }
 
@@ -258,6 +285,12 @@ func keywordOrIdent(s string) TokenKind {
 	switch s {
 	case "import":
 		return KwImport
+	case "as":
+		return KwAs
+	case "package":
+		return KwPackage
+	case "pub":
+		return KwPub
 	case "struct":
 		return KwStruct
 	case "enum":
@@ -367,7 +400,7 @@ func (l *Lexer) canInsertSemicolon() bool {
 }
 
 func (l *Lexer) consumeBlockComment() error {
-	startLine, startCol := l.line, l.col
+	start, startLine, startCol := l.pos, l.line, l.col
 	l.advance()
 	l.advance()
 	for !l.isAtEnd() {
@@ -378,7 +411,7 @@ func (l *Lexer) consumeBlockComment() error {
 		}
 		l.advance()
 	}
-	return l.errAt(startLine, startCol, "unterminated block comment")
+	return l.errAt(start, startLine, startCol, "unterminated block comment")
 }
 
 func (l *Lexer) consumeIdent() string {
@@ -411,13 +444,13 @@ func (l *Lexer) consumeNumber() (TokenKind, string) {
 }
 
 func (l *Lexer) consumeString() (string, error) {
-	startLine, startCol := l.line, l.col
+	start, startLine, startCol := l.pos, l.line, l.col
 	l.advance()
 	var out []rune
 	for !l.isAtEnd() {
 		ch := l.peek()
 		if ch == '\n' {
-			return "", l.errAt(startLine, startCol, "unterminated string literal")
+			return "", l.errAt(start, startLine, startCol, "unterminated string literal")
 		}
 		if ch == '"' {
 			l.advance()
@@ -426,7 +459,7 @@ func (l *Lexer) consumeString() (string, error) {
 		if ch == '\\' {
 			l.advance()
 			if l.isAtEnd() {
-				return "", l.errAt(startLine, startCol, "unterminated string literal")
+				return "", l.errAt(start, startLine, startCol, "unterminated string literal")
 			}
 			esc := l.peek()
 			switch esc {
@@ -441,7 +474,7 @@ func (l *Lexer) consumeString() (string, error) {
 			case '"':
 				out = append(out, '"')
 			default:
-				return "", l.errAt(startLine, startCol, fmt.Sprintf("invalid escape '\\%c'", esc))
+				return "", l.errAt(start, startLine, startCol, "invalid escape '\\%c'", esc)
 			}
 			l.advance()
 			continue
@@ -449,9 +482,9 @@ func (l *Lexer) consumeString() (string, error) {
 		out = append(out, ch)
 		l.advance()
 	}
-	return "", l.errAt(startLine, startCol, "unterminated string literal")
+	return "", l.errAt(start, startLine, startCol, "unterminated string literal")
 }
 
-func (l *Lexer) errAt(line, col int, msg string) error {
-	return fmt.Errorf("lex error at %d:%d: %s", line, col, msg)
+func (l *Lexer) errAt(offset, line, col int, format string, args ...any) error {
+	return diag.New("lex error", fmt.Sprintf(format, args...), source.Point(offset, line, col))
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"baziclang/internal/ast"
+	"baziclang/internal/intrinsics"
 )
 
 func FuzzParseHttpHandlerName(f *testing.F) {
@@ -12,10 +13,10 @@ func FuzzParseHttpHandlerName(f *testing.F) {
 	f.Add("patch_posts_p_postId_comments")
 	f.Fuzz(func(t *testing.T, name string) {
 		fn := &ast.FuncDecl{
-			Name: name,
-			Params: []ast.Param{{Name: "req", Type: ast.Type("ServerRequest")}},
+			Name:       name,
+			Params:     []ast.Param{{Name: "req", Type: ast.Type("ServerRequest")}},
 			ReturnType: ast.Type("ServerResponse"),
 		}
-		_, _ = parseHttpHandler(fn)
+		_, _ = intrinsics.ParseHTTPHandler(fn)
 	})
 }

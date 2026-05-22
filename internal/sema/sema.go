@@ -6,380 +6,376 @@ import (
 	"strings"
 
 	"baziclang/internal/ast"
+	"baziclang/internal/diag"
+	"baziclang/internal/intrinsics"
+	"baziclang/internal/source"
+	baztypes "baziclang/internal/types"
 )
 
 type FuncSig struct {
 	TypeParams      []string
-	TypeParamBounds map[string]ast.Type
-	Params          []ast.Type
-	Ret             ast.Type
+	TypeParamBounds map[string]baztypes.Type
+	Params          []baztypes.Type
+	Ret             baztypes.Type
+	PackageID       string
+	Public          bool
+	InternalName    string
 }
 
 type StructSig struct {
 	TypeParams      []string
-	TypeParamBounds map[string]ast.Type
-	Fields          map[string]ast.Type
+	TypeParamBounds map[string]baztypes.Type
+	Fields          map[string]baztypes.Type
+	PackageID       string
+	Public          bool
+	InternalName    string
 }
 
 type InterfaceMethodSig struct {
-	Params []ast.Type
-	Ret    ast.Type
+	Params []baztypes.Type
+	Ret    baztypes.Type
 }
 
 type InterfaceSig struct {
 	Methods map[string]InterfaceMethodSig
+	PackageID string
+	Public    bool
+	InternalName string
+}
+
+type EnumSig struct {
+	Variants  map[string]bool
+	PackageID string
+	Public    bool
+	InternalName string
 }
 
 type Checker struct {
 	functions  map[string]FuncSig
+	packageFunctions map[string]map[string]FuncSig
 	structs    map[string]StructSig
+	packageStructs map[string]map[string]StructSig
+	internalStructs map[string]StructSig
 	interfaces map[string]InterfaceSig
-	enums      map[string]bool
-	enumVars   map[string]map[string]bool
-	globals    map[string]ast.Type
-	globalsConst map[string]bool
+	packageInterfaces map[string]map[string]InterfaceSig
+	internalInterfaces map[string]InterfaceSig
+	enums      map[string]EnumSig
+	packageEnums map[string]map[string]EnumSig
+	internalEnums map[string]EnumSig
+	globals    map[string]GlobalSymbol
+	packageGlobals map[string]map[string]GlobalSymbol
+	imports    map[string]map[string]importBinding
+	bareImports map[string]map[string]bool
 	impls      []ast.ImplDecl
-	scopes     []map[string]*varInfo
+	scopes     *scopeStack
 	currentFn  ast.Type
+	currentFnDecl *ast.FuncDecl
+	currentPackage string
+	mainDecl   *ast.FuncDecl
 	fnTypes    map[string]bool
 }
 
+type GlobalSymbol struct {
+	Type      ast.Type
+	Const     bool
+	PackageID string
+	Public    bool
+	InternalName string
+}
+
+type importBinding struct {
+	TargetPackageID string
+	ExplicitAlias   bool
+}
+
 type varInfo struct {
-	typ  ast.Type
-	used bool
+	typ      ast.Type
+	used     bool
+	declSpan source.Span
 	isConst bool
+}
+
+func funcSig(params []ast.Type, ret ast.Type) FuncSig {
+	return FuncSig{Params: astTypesToStructured(params), Ret: baztypes.MustParse(ret), Public: true}
+}
+
+func genericFuncSig(typeParams []string, bounds map[string]ast.Type, params []ast.Type, ret ast.Type) FuncSig {
+	return FuncSig{
+		TypeParams:      append([]string{}, typeParams...),
+		TypeParamBounds: astTypeMapToStructured(bounds),
+		Params:          astTypesToStructured(params),
+		Ret:             baztypes.MustParse(ret),
+		Public:          true,
+	}
+}
+
+func structSig(typeParams []string, bounds map[string]ast.Type, fields map[string]ast.Type) StructSig {
+	return StructSig{
+		TypeParams:      append([]string{}, typeParams...),
+		TypeParamBounds: astTypeMapToStructured(bounds),
+		Fields:          astTypeMapToStructured(fields),
+		Public:          true,
+	}
+}
+
+func interfaceMethodSig(params []ast.Type, ret ast.Type) InterfaceMethodSig {
+	return InterfaceMethodSig{Params: astTypesToStructured(params), Ret: baztypes.MustParse(ret)}
+}
+
+func astTypesToStructured(in []ast.Type) []baztypes.Type {
+	if in == nil {
+		return nil
+	}
+	out := make([]baztypes.Type, 0, len(in))
+	for _, t := range in {
+		out = append(out, baztypes.MustParse(t))
+	}
+	return out
+}
+
+func astTypeMapToStructured(in map[string]ast.Type) map[string]baztypes.Type {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]baztypes.Type, len(in))
+	for k, v := range in {
+		if v == "" {
+			out[k] = baztypes.Type{}
+			continue
+		}
+		out[k] = baztypes.MustParse(v)
+	}
+	return out
+}
+
+func structuredTypeToAST(t baztypes.Type) ast.Type {
+	if t.Kind == baztypes.KindInvalid && t.Name == "" && len(t.Args) == 0 {
+		return ""
+	}
+	return baztypes.ToAST(t)
+}
+
+func structuredTypeMapToAST(in map[string]baztypes.Type) map[string]ast.Type {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]ast.Type, len(in))
+	for k, v := range in {
+		out[k] = structuredTypeToAST(v)
+	}
+	return out
 }
 
 func New() *Checker {
 	c := &Checker{
 		functions:  map[string]FuncSig{},
+		packageFunctions: map[string]map[string]FuncSig{},
 		structs:    map[string]StructSig{},
+		packageStructs: map[string]map[string]StructSig{},
+		internalStructs: map[string]StructSig{},
 		interfaces: map[string]InterfaceSig{},
-		enums:      map[string]bool{},
-		enumVars:   map[string]map[string]bool{},
-		globals:    map[string]ast.Type{},
-		globalsConst: map[string]bool{},
-		scopes:     []map[string]*varInfo{},
+		packageInterfaces: map[string]map[string]InterfaceSig{},
+		internalInterfaces: map[string]InterfaceSig{},
+		enums:      map[string]EnumSig{},
+		packageEnums: map[string]map[string]EnumSig{},
+		internalEnums: map[string]EnumSig{},
+		globals:    map[string]GlobalSymbol{},
+		packageGlobals: map[string]map[string]GlobalSymbol{},
+		imports:    map[string]map[string]importBinding{},
+		bareImports: map[string]map[string]bool{},
+		scopes:     newScopeStack(),
 		fnTypes:    map[string]bool{},
 	}
-	c.functions["print"] = FuncSig{Params: []ast.Type{ast.TypeAny}, Ret: ast.TypeVoid}
-	c.functions["println"] = FuncSig{Params: []ast.Type{ast.TypeAny}, Ret: ast.TypeVoid}
-	c.functions["str"] = FuncSig{Params: []ast.Type{ast.TypeAny}, Ret: ast.TypeString}
-	c.functions["len"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeInt}
-	c.functions["contains"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeBool}
-	c.functions["starts_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeBool}
-	c.functions["ends_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeBool}
-	c.functions["to_upper"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["to_lower"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["trim_space"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["replace"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["repeat"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt}, Ret: ast.TypeString}
-	c.functions["parse_int"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
-	c.functions["parse_float"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[float,Error]")}
-	c.functions["__std_read_file"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_write_file"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_read_line"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_read_all"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_exists"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeBool}
-	c.functions["__std_mkdir_all"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_remove"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_list_dir"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_unix_millis"] = FuncSig{Params: []ast.Type{}, Ret: ast.TypeInt}
-	c.functions["__std_sleep_ms"] = FuncSig{Params: []ast.Type{ast.TypeInt}, Ret: ast.TypeVoid}
-	c.functions["__std_now_rfc3339"] = FuncSig{Params: []ast.Type{}, Ret: ast.TypeString}
-	c.functions["__std_json_escape"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_json_pretty"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_json_validate"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeBool}
-	c.functions["__std_json_minify"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_json_get_raw"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_json_get_string"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_json_get_bool"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_json_get_int"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
-	c.functions["__std_json_get_float"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[float,Error]")}
-	c.functions["__std_http_get"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_http_post"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_http_serve_text"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_http_get_opts"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_http_post_opts"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_http_request"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_http_get_opts_resp"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[HttpResponse,Error]")}
-	c.functions["__std_http_post_opts_resp"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[HttpResponse,Error]")}
-	c.functions["__std_http_request_resp"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type("Result[HttpResponse,Error]")}
-	c.functions["__std_http_serve_app"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_sha256_hex"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_hmac_sha256_hex"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_random_hex"] = FuncSig{Params: []ast.Type{ast.TypeInt}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_jwt_sign_hs256"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_jwt_verify_hs256"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_bcrypt_hash"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_bcrypt_verify"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_session_init"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_session_put"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_session_get_user"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_session_delete"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_time_add_days"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_kv_get"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_header_get"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_query_get"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_open_url"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_args"] = FuncSig{Params: []ast.Type{}, Ret: ast.TypeString}
-	c.functions["__std_getenv"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_cwd"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_chdir"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_env_list"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_temp_dir"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_exe_path"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_home_dir"] = FuncSig{Params: []ast.Type{}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_web_get_json"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_web_set_json"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_base64_encode"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_base64_decode"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_path_basename"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_path_dirname"] = FuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_path_join"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	c.functions["__std_db_exec"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_db_query"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_exec_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_db_query_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_json"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_json_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_one_json"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_one_json_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_exec_returning_id"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
-	c.functions["__std_db_exec_returning_id_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
-	c.functions["__std_db_exec_params"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_db_exec_params_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[bool,Error]")}
-	c.functions["__std_db_query_params"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_params_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_json_params"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_json_params_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_one_json_params"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_query_one_json_params_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[string,Error]")}
-	c.functions["__std_db_exec_returning_id_params"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
-	c.functions["__std_db_exec_returning_id_params_with"] = FuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: ast.Type("Result[int,Error]")}
+	for _, fn := range intrinsics.FunctionSpecs(nil) {
+		c.functions[fn.Name] = funcSig(fn.Params, fn.Ret)
+	}
 	return c
 }
 
+func (c *Checker) diagAt(span source.Span, format string, args ...any) error {
+	return diag.New("type error", fmt.Sprintf(format, args...), span)
+}
+
+func (c *Checker) nodeError(node ast.Node, format string, args ...any) error {
+	if node == nil {
+		return diag.New("type error", fmt.Sprintf(format, args...), source.Span{})
+	}
+	return c.diagAt(node.Span(), format, args...)
+}
+
+func (c *Checker) fieldError(span source.Span, format string, args ...any) error {
+	return c.diagAt(span, format, args...)
+}
+
+type checkPass struct {
+	name string
+	run  func(*Checker, *ast.Program) error
+}
+
+type typeLookupStatus int
+
+const (
+	typeLookupMissing typeLookupStatus = iota
+	typeLookupFound
+	typeLookupAmbiguous
+)
+
 func (c *Checker) Check(p *ast.Program) error {
-	for _, d := range p.Decls {
-		switch decl := d.(type) {
-		case *ast.ImportDecl:
-			continue
-		case *ast.StructDecl:
-			if _, exists := c.structs[decl.Name]; exists {
-				return fmt.Errorf("type error: duplicate struct '%s'", decl.Name)
-			}
-			tpMap := map[string]bool{}
-			for _, tp := range decl.TypeParams {
-				if tpMap[tp] {
-					return fmt.Errorf("type error: duplicate type parameter '%s' on struct '%s'", tp, decl.Name)
-				}
-				tpMap[tp] = true
-			}
-			if decl.TypeParamBounds == nil {
-				decl.TypeParamBounds = map[string]ast.Type{}
-			}
-			for tp := range decl.TypeParamBounds {
-				if !tpMap[tp] {
-					return fmt.Errorf("type error: unknown type parameter '%s' in bounds for struct '%s'", tp, decl.Name)
-				}
-			}
-			fields := map[string]ast.Type{}
-			for _, f := range decl.Fields {
-				if _, ok := fields[f.Name]; ok {
-					return fmt.Errorf("type error: duplicate field '%s' in struct '%s'", f.Name, decl.Name)
-				}
-				if err := c.validateTypeRef(f.Type, tpMap, false); err != nil {
-					return fmt.Errorf("in struct '%s': %w", decl.Name, err)
-				}
-				fields[f.Name] = f.Type
-			}
-			c.structs[decl.Name] = StructSig{TypeParams: decl.TypeParams, TypeParamBounds: decl.TypeParamBounds, Fields: fields}
-		case *ast.InterfaceDecl:
-			if _, exists := c.interfaces[decl.Name]; exists {
-				return fmt.Errorf("type error: duplicate interface '%s'", decl.Name)
-			}
-			methods := map[string]InterfaceMethodSig{}
-			for _, m := range decl.Methods {
-				if _, exists := methods[m.Name]; exists {
-					return fmt.Errorf("type error: duplicate method '%s' in interface '%s'", m.Name, decl.Name)
-				}
-				params := make([]ast.Type, 0, len(m.Params))
-				for _, p := range m.Params {
-					if err := c.validateTypeRef(p.Type, nil, false); err != nil {
-						return fmt.Errorf("in interface '%s' method '%s': %w", decl.Name, m.Name, err)
-					}
-					params = append(params, p.Type)
-				}
-				if err := c.validateTypeRef(m.Return, nil, true); err != nil {
-					return fmt.Errorf("in interface '%s' method '%s': %w", decl.Name, m.Name, err)
-				}
-				methods[m.Name] = InterfaceMethodSig{Params: params, Ret: m.Return}
-			}
-			c.interfaces[decl.Name] = InterfaceSig{Methods: methods}
-		case *ast.EnumDecl:
-			if c.enums[decl.Name] {
-				return fmt.Errorf("type error: duplicate enum '%s'", decl.Name)
-			}
-			c.enums[decl.Name] = true
-			c.enumVars[decl.Name] = map[string]bool{}
-			for _, v := range decl.Variants {
-				if c.enumVars[decl.Name][v] {
-					return fmt.Errorf("type error: duplicate enum variant '%s' in enum '%s'", v, decl.Name)
-				}
-				c.enumVars[decl.Name][v] = true
-				if _, exists := c.globals[v]; exists {
-					return fmt.Errorf("type error: duplicate global symbol '%s'", v)
-				}
-				c.globals[v] = ast.Type(decl.Name)
-			}
-		case *ast.FuncDecl:
-			if _, exists := c.functions[decl.Name]; exists {
-				return fmt.Errorf("type error: duplicate function '%s'", decl.Name)
-			}
-			tpMap := map[string]bool{}
-			for _, tp := range decl.TypeParams {
-				if tpMap[tp] {
-					return fmt.Errorf("type error: duplicate type parameter '%s' in function '%s'", tp, decl.Name)
-				}
-				tpMap[tp] = true
-			}
-			if decl.TypeParamBounds == nil {
-				decl.TypeParamBounds = map[string]ast.Type{}
-			}
-			for tp := range decl.TypeParamBounds {
-				if !tpMap[tp] {
-					return fmt.Errorf("type error: unknown type parameter '%s' in bounds for function '%s'", tp, decl.Name)
-				}
-			}
-			params := make([]ast.Type, 0, len(decl.Params))
-			for _, param := range decl.Params {
-				if err := c.validateTypeRef(param.Type, tpMap, false); err != nil {
-					return fmt.Errorf("in function '%s': %w", decl.Name, err)
-				}
-				params = append(params, param.Type)
-			}
-			if err := c.validateTypeRef(decl.ReturnType, tpMap, true); err != nil {
-				return fmt.Errorf("in function '%s': %w", decl.Name, err)
-			}
-			c.functions[decl.Name] = FuncSig{TypeParams: decl.TypeParams, TypeParamBounds: decl.TypeParamBounds, Params: params, Ret: decl.ReturnType}
-		case *ast.ImplDecl:
-			c.impls = append(c.impls, *decl)
-		case *ast.GlobalLetDecl:
-			continue
+	c.collectImportRefs(p)
+	passes := []checkPass{
+		{name: "collect declarations", run: (*Checker).collectDecls},
+		{name: "collect globals", run: (*Checker).collectGlobals},
+		{name: "validate entry points", run: (*Checker).validateProgramShape},
+		{name: "check functions", run: (*Checker).checkFunctions},
+		{name: "check impls", run: (*Checker).checkProgramImpls},
+	}
+	for _, pass := range passes {
+		if err := pass.run(c, p); err != nil {
+			return err
 		}
-	}
-
-	for _, d := range p.Decls {
-		if decl, ok := d.(*ast.GlobalLetDecl); ok {
-			t, err := c.exprType(decl.Init)
-			if err != nil {
-				return err
-			}
-			if decl.Type == ast.TypeInvalid {
-				decl.Type = t
-			}
-			if err := c.validateTypeRef(decl.Type, nil, false); err != nil {
-				return err
-			}
-			if decl.Type != t && decl.Type != ast.TypeAny {
-				return fmt.Errorf("type error: global '%s' expected %s but got %s", decl.Name, decl.Type, t)
-			}
-			if _, exists := c.globals[decl.Name]; exists {
-				return fmt.Errorf("type error: duplicate global '%s'", decl.Name)
-			}
-			c.globals[decl.Name] = decl.Type
-			if decl.IsConst {
-				c.globalsConst[decl.Name] = true
-			}
-		}
-	}
-
-	if _, ok := c.functions["main"]; !ok {
-		return fmt.Errorf("type error: missing required 'main' function")
-	}
-	if err := c.validateMainSignature(); err != nil {
-		return err
-	}
-	if err := c.validateTypeParamBounds(); err != nil {
-		return err
-	}
-	for _, d := range p.Decls {
-		if fn, ok := d.(*ast.FuncDecl); ok {
-			if err := c.checkFunc(fn); err != nil {
-				return err
-			}
-		}
-	}
-	if err := c.checkImpls(); err != nil {
-		return err
 	}
 	return nil
 }
 
+func (c *Checker) collectImportRefs(p *ast.Program) {
+	c.imports = map[string]map[string]importBinding{}
+	c.bareImports = map[string]map[string]bool{}
+	if p == nil {
+		return
+	}
+	for _, ref := range p.Imports {
+		if ref.OwnerPackageID == "" || ref.Alias == "" || ref.TargetPackageID == "" {
+			continue
+		}
+		byOwner := c.imports[ref.OwnerPackageID]
+		if byOwner == nil {
+			byOwner = map[string]importBinding{}
+			c.imports[ref.OwnerPackageID] = byOwner
+		}
+		byOwner[ref.Alias] = importBinding{TargetPackageID: ref.TargetPackageID, ExplicitAlias: ref.ExplicitAlias}
+		if ref.BareAllowed {
+			bare := c.bareImports[ref.OwnerPackageID]
+			if bare == nil {
+				bare = map[string]bool{}
+				c.bareImports[ref.OwnerPackageID] = bare
+			}
+			bare[ref.TargetPackageID] = true
+		}
+	}
+}
+
+func (c *Checker) collectDecls(p *ast.Program) error {
+	return newDeclCollector(c).run(p)
+}
+
+func (c *Checker) collectGlobals(p *ast.Program) error {
+	return newGlobalCollector(c).run(p)
+}
+
+func (c *Checker) validateProgramShape(_ *ast.Program) error {
+	return newProgramShapeValidator(c).run(nil)
+}
+
+func (c *Checker) checkFunctions(p *ast.Program) error {
+	return newFunctionPass(c).run(p)
+}
+
+func (c *Checker) checkProgramImpls(_ *ast.Program) error {
+	return newImplPass(c).run(nil)
+}
+
 func (c *Checker) validateTypeParamBounds() error {
 	for name, sig := range c.structs {
-		for tp, bound := range sig.TypeParamBounds {
-			if bound == "" {
-				continue
-			}
-			if _, ok := c.interfaces[string(bound)]; !ok {
-				return fmt.Errorf("type error: unknown interface '%s' bound for struct '%s' type param '%s'", bound, name, tp)
+		if err := c.validateStructBounds(name, sig); err != nil {
+			return err
+		}
+	}
+	for _, byPkg := range c.packageStructs {
+		for name, sig := range byPkg {
+			if err := c.validateStructBounds(name, sig); err != nil {
+				return err
 			}
 		}
 	}
 	for name, sig := range c.functions {
-		for tp, bound := range sig.TypeParamBounds {
-			if bound == "" {
-				continue
+		if err := c.validateFuncBounds(name, sig); err != nil {
+			return err
+		}
+	}
+	for _, byPkg := range c.packageFunctions {
+		for name, sig := range byPkg {
+			if err := c.validateFuncBounds(name, sig); err != nil {
+				return err
 			}
-			if _, ok := c.interfaces[string(bound)]; !ok {
-				return fmt.Errorf("type error: unknown interface '%s' bound for function '%s' type param '%s'", bound, name, tp)
-			}
+		}
+	}
+	return nil
+}
+
+func (c *Checker) validateStructBounds(name string, sig StructSig) error {
+	prevPackage := c.currentPackage
+	c.currentPackage = sig.PackageID
+	defer func() { c.currentPackage = prevPackage }()
+	for tp, bound := range sig.TypeParamBounds {
+		rawBound := structuredTypeToAST(bound)
+		if rawBound == "" {
+			continue
+		}
+		if _, ok := c.resolveInterface(string(rawBound)); ok != typeLookupFound {
+			return fmt.Errorf("type error: unknown interface '%s' bound for struct '%s' type param '%s'", rawBound, name, tp)
+		}
+	}
+	return nil
+}
+
+func (c *Checker) validateFuncBounds(name string, sig FuncSig) error {
+	prevPackage := c.currentPackage
+	c.currentPackage = sig.PackageID
+	defer func() { c.currentPackage = prevPackage }()
+	for tp, bound := range sig.TypeParamBounds {
+		rawBound := structuredTypeToAST(bound)
+		if rawBound == "" {
+			continue
+		}
+		if _, ok := c.resolveInterface(string(rawBound)); ok != typeLookupFound {
+			return fmt.Errorf("type error: unknown interface '%s' bound for function '%s' type param '%s'", rawBound, name, tp)
 		}
 	}
 	return nil
 }
 
 func (c *Checker) validateMainSignature() error {
-	sig := c.functions["main"]
+	var sig FuncSig
+	var ok bool
+	if c.mainDecl != nil && c.mainDecl.PackageID != "" {
+		if byPkg := c.packageFunctions[c.mainDecl.PackageID]; byPkg != nil {
+			sig, ok = byPkg["main"]
+		}
+	} else {
+		sig, ok = c.functions["main"]
+	}
+	if !ok {
+		if byPkg := c.packageFunctions["main"]; byPkg != nil {
+			sig, ok = byPkg["main"]
+		}
+	}
+	if !ok {
+		return c.nodeError(c.mainDecl, "missing main signature")
+	}
 	if len(sig.TypeParams) != 0 {
-		return fmt.Errorf("type error: 'main' cannot be generic")
+		return c.nodeError(c.mainDecl, "'main' cannot be generic")
 	}
 	if len(sig.Params) != 0 {
-		return fmt.Errorf("type error: 'main' must not take parameters")
+		return c.nodeError(c.mainDecl, "'main' must not take parameters")
 	}
-	if sig.Ret != ast.TypeVoid {
-		return fmt.Errorf("type error: 'main' must return void")
+	if structuredTypeToAST(sig.Ret) != ast.TypeVoid {
+		return c.nodeError(c.mainDecl, "'main' must return void")
 	}
 	return nil
 }
 
 func (c *Checker) checkFunc(fn *ast.FuncDecl) error {
-	c.currentFn = fn.ReturnType
-	c.fnTypes = map[string]bool{}
-	for _, t := range fn.TypeParams {
-		c.fnTypes[t] = true
-	}
-	c.pushScope()
-	for _, param := range fn.Params {
-		if err := c.declare(param.Name, param.Type, false); err != nil {
-			return err
-		}
-	}
-	for _, s := range fn.Body.Stmts {
-		if err := c.checkStmt(s); err != nil {
-			return fmt.Errorf("in function '%s': %w", fn.Name, err)
-		}
-	}
-	if fn.ReturnType != ast.TypeVoid && !blockAlwaysReturns(fn.Body) {
-		return fmt.Errorf("in function '%s': type error: missing return on some control paths", fn.Name)
-	}
-	if err := c.popScope(); err != nil {
-		return fmt.Errorf("in function '%s': %w", fn.Name, err)
-	}
-	c.fnTypes = map[string]bool{}
-	return nil
+	return newFuncChecker(c, fn).run()
 }
 
 func (c *Checker) checkStmt(s ast.Stmt) error {
@@ -392,13 +388,15 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 		if st.Type == ast.TypeInvalid {
 			st.Type = t
 		}
-		if err := c.validateTypeRef(st.Type, c.fnTypes, false); err != nil {
+		canon, err := c.canonicalizeTypeRef(st.Type, c.fnTypes, false)
+		if err != nil {
 			return err
 		}
+		st.Type = canon
 		if st.Type != t && st.Type != ast.TypeAny {
-			return fmt.Errorf("type error: variable '%s' expected %s but got %s", st.Name, st.Type, t)
+			return c.nodeError(st, "variable '%s' expected %s but got %s", st.Name, st.Type, t)
 		}
-		return c.declare(st.Name, st.Type, st.IsConst)
+		return c.declare(st.Name, st.Type, st.IsConst, st.Span())
 	case *ast.AssignStmt:
 		targetType, err := c.typeOfAssignTarget(st.Target)
 		if err != nil {
@@ -406,7 +404,7 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 		}
 		if root, ok := rootIdent(st.Target); ok {
 			if _, isConst, ok := c.resolveVar(root, false); ok && isConst {
-				return fmt.Errorf("type error: cannot assign to const '%s'", root)
+				return c.nodeError(st, "cannot assign to const '%s'", root)
 			}
 		}
 		rhs, err := c.exprType(st.Value)
@@ -414,7 +412,7 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 			return err
 		}
 		if targetType != rhs && targetType != ast.TypeAny {
-			return fmt.Errorf("type error: cannot assign %s to '%s' (%s)", rhs, formatAssignTargetName(st.Target), targetType)
+			return c.nodeError(st, "cannot assign %s to '%s' (%s)", rhs, formatAssignTargetName(st.Target), targetType)
 		}
 		return nil
 	case *ast.IfStmt:
@@ -423,7 +421,7 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 			return err
 		}
 		if cond != ast.TypeBool {
-			return fmt.Errorf("type error: if condition must be bool, got %s", cond)
+			return c.nodeError(st.Cond, "if condition must be bool, got %s", cond)
 		}
 		if err := c.checkBlock(st.Then); err != nil {
 			return err
@@ -440,7 +438,7 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 			return err
 		}
 		if cond != ast.TypeBool {
-			return fmt.Errorf("type error: while condition must be bool, got %s", cond)
+			return c.nodeError(st.Cond, "while condition must be bool, got %s", cond)
 		}
 		return c.checkBlock(st.Body)
 	case *ast.MatchStmt:
@@ -448,7 +446,7 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 	case *ast.ReturnStmt:
 		if st.Value == nil {
 			if c.currentFn != ast.TypeVoid {
-				return fmt.Errorf("type error: return value required for function returning %s", c.currentFn)
+				return c.nodeError(st, "return value required for function returning %s", c.currentFn)
 			}
 			return nil
 		}
@@ -457,14 +455,14 @@ func (c *Checker) checkStmt(s ast.Stmt) error {
 			return err
 		}
 		if t != c.currentFn && c.currentFn != ast.TypeAny {
-			return fmt.Errorf("type error: return type mismatch, expected %s got %s", c.currentFn, t)
+			return c.nodeError(st, "return type mismatch, expected %s got %s", c.currentFn, t)
 		}
 		return nil
 	case *ast.ExprStmt:
 		_, err := c.exprType(st.Expr)
 		return err
 	default:
-		return fmt.Errorf("type error: unsupported statement")
+		return c.nodeError(s, "unsupported statement")
 	}
 }
 
@@ -473,13 +471,13 @@ func (c *Checker) typeOfAssignTarget(target ast.Expr) (ast.Type, error) {
 	case *ast.IdentExpr:
 		typ, _, ok := c.resolveVar(t.Name, false)
 		if !ok {
-			return ast.TypeInvalid, fmt.Errorf("type error: unknown variable '%s'%s", t.Name, c.suggestVisibleName(t.Name))
+			return ast.TypeInvalid, c.nodeError(t, "unknown variable '%s'%s", t.Name, c.suggestVisibleName(t.Name))
 		}
 		return typ, nil
 	case *ast.FieldAccessExpr:
 		return c.exprType(t)
 	default:
-		return ast.TypeInvalid, fmt.Errorf("type error: invalid assignment target")
+		return ast.TypeInvalid, c.nodeError(target, "invalid assignment target")
 	}
 }
 
@@ -506,29 +504,32 @@ func formatAssignTargetName(target ast.Expr) string {
 }
 
 func (c *Checker) checkMatchStmt(st *ast.MatchStmt) error {
-	enumName, variants, err := c.resolveMatchSubjectEnum(st.Subject)
+	enumName, enumSig, err := c.resolveMatchSubjectEnum(st.Subject)
 	if err != nil {
 		return err
 	}
 	unguarded := map[string]bool{}
-	for _, arm := range st.Arms {
-		if err := c.validateMatchVariant(enumName, variants, unguarded, arm.Variant, arm.Guard); err != nil {
+	for i := range st.Arms {
+		arm := &st.Arms[i]
+		variant, err := c.validateMatchVariant(enumName, enumSig, unguarded, arm.Variant, arm.Guard, arm.Range)
+		if err != nil {
 			return err
 		}
+		arm.Variant = variant
 		if arm.Guard != nil {
 			t, err := c.exprType(arm.Guard)
 			if err != nil {
 				return err
 			}
 			if t != ast.TypeBool {
-				return fmt.Errorf("type error: match guard must be bool, got %s", t)
+				return c.nodeError(arm.Guard, "match guard must be bool, got %s", t)
 			}
 		}
 		if err := c.checkBlock(arm.Body); err != nil {
 			return err
 		}
 	}
-	if err := ensureMatchExhaustive(enumName, variants, unguarded); err != nil {
+	if err := ensureMatchExhaustive(enumName, enumSig.Variants, unguarded); err != nil {
 		return err
 	}
 	return nil
@@ -556,32 +557,44 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 	case *ast.StringExpr:
 		return ast.TypeString, nil
 	case *ast.NilExpr:
-		return ast.TypeInvalid, fmt.Errorf("type error: 'nil' is not a value in Bazic; use Option[T], Result[T,E], or Error with explicit state")
+		return ast.TypeInvalid, c.nodeError(ex, "'nil' is not a value in Bazic; use Option[T], Result[T,E], or Error with explicit state")
 	case *ast.IdentExpr:
 		if t, ok := c.resolve(ex.Name, true); ok {
+			if g, status := c.resolveGlobalSymbol(ex.Name); status == typeLookupFound && g.InternalName != "" && !c.isEnumVariantLiteral(ex.Name, g) {
+				ex.Resolved = g.InternalName
+			}
 			return t, nil
 		}
-		return ast.TypeInvalid, fmt.Errorf("type error: unknown identifier '%s'%s", ex.Name, c.suggestVisibleName(ex.Name))
+		return ast.TypeInvalid, c.nodeError(ex, "unknown identifier '%s'%s", ex.Name, c.suggestVisibleName(ex.Name))
 	case *ast.StructLitExpr:
+		canonType, err := c.canonicalizeTypeRef(ast.Type(ex.TypeName), c.fnTypes, false)
+		if err != nil {
+			return ast.TypeInvalid, c.nodeError(ex, "%s", err.Error())
+		}
+		ex.TypeName = string(canonType)
 		base, args, _ := splitGenericType(string(ex.TypeName))
 		if base == "" {
 			base = ex.TypeName
 		}
-		sig, ok := c.structs[base]
-		if !ok {
-			return ast.TypeInvalid, fmt.Errorf("type error: unknown struct '%s'", ex.TypeName)
+		sig, status := c.resolveStruct(base)
+		if status == typeLookupAmbiguous {
+			return ast.TypeInvalid, c.nodeError(ex, "ambiguous struct '%s'; qualify or disambiguate the package source", ex.TypeName)
+		}
+		if status != typeLookupFound {
+			return ast.TypeInvalid, c.nodeError(ex, "unknown struct '%s'", ex.TypeName)
 		}
 		mapping, err := bindTypeParams(sig.TypeParams, args)
 		if err != nil {
-			return ast.TypeInvalid, fmt.Errorf("type error: %w", err)
+			return ast.TypeInvalid, c.nodeError(ex, "%s", err.Error())
 		}
 		for tp, bound := range sig.TypeParamBounds {
-			if bound == "" {
+			rawBound := structuredTypeToAST(bound)
+			if rawBound == "" {
 				continue
 			}
 			if actual, ok := mapping[tp]; ok {
-				if err := c.requireImplements(actual, bound); err != nil {
-					return ast.TypeInvalid, fmt.Errorf("type error: type argument '%s' does not satisfy bound %s: %w", actual, bound, err)
+				if err := c.requireImplements(actual, rawBound); err != nil {
+					return ast.TypeInvalid, c.nodeError(ex, "type argument '%s' does not satisfy bound %s: %v", actual, rawBound, err)
 				}
 			}
 		}
@@ -589,25 +602,41 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 		for _, field := range ex.Fields {
 			rawExpected, ok := sig.Fields[field.Name]
 			if !ok {
-				return ast.TypeInvalid, fmt.Errorf("type error: unknown field '%s' on struct '%s'%s", field.Name, ex.TypeName, suggestNameSuffix(field.Name, mapKeys(sig.Fields)))
+				return ast.TypeInvalid, c.fieldError(field.Range, "unknown field '%s' on struct '%s'%s", field.Name, ex.TypeName, suggestNameSuffix(field.Name, mapKeys(sig.Fields)))
 			}
-			expected := substType(rawExpected, mapping)
+			expected := substType(structuredTypeToAST(rawExpected), mapping)
 			vt, err := c.exprType(field.Value)
 			if err != nil {
 				return ast.TypeInvalid, err
 			}
 			if vt != expected && expected != ast.TypeAny {
-				return ast.TypeInvalid, fmt.Errorf("type error: field '%s' on '%s' expected %s got %s", field.Name, ex.TypeName, expected, vt)
+				return ast.TypeInvalid, c.fieldError(field.Range, "field '%s' on '%s' expected %s got %s", field.Name, ex.TypeName, expected, vt)
 			}
 			seen[field.Name] = true
 		}
 		for name := range sig.Fields {
 			if !seen[name] {
-				return ast.TypeInvalid, fmt.Errorf("type error: missing field '%s' in struct literal '%s'", name, ex.TypeName)
+				return ast.TypeInvalid, c.nodeError(ex, "missing field '%s' in struct literal '%s'", name, ex.TypeName)
 			}
 		}
-		return ast.Type(ex.TypeName), nil
+		return canonType, nil
 	case *ast.FieldAccessExpr:
+		if pkg, ok := ex.Object.(*ast.IdentExpr); ok {
+			if _, imported := c.resolveImportedPackage(pkg.Name); imported {
+				if t, _, ok := c.resolveQualifiedGlobal(pkg.Name, ex.Field); ok {
+					if byPkg, ok := c.packageGlobals[c.imports[c.currentPackage][pkg.Name].TargetPackageID]; ok {
+						if g, ok := byPkg[ex.Field]; ok {
+							ex.ResolvedGlobal = g.InternalName
+						}
+					}
+					return t, nil
+				}
+				return ast.TypeInvalid, c.nodeError(ex, "package '%s' has no public value '%s'", pkg.Name, ex.Field)
+			}
+			if t, _, ok := c.resolveQualifiedGlobal(pkg.Name, ex.Field); ok {
+				return t, nil
+			}
+		}
 		objType, err := c.exprType(ex.Object)
 		if err != nil {
 			return ast.TypeInvalid, err
@@ -616,9 +645,12 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 		if base == "" {
 			base = string(objType)
 		}
-		sig, ok := c.structs[base]
-		if !ok {
-			return ast.TypeInvalid, fmt.Errorf("type error: field access requires struct type, got %s", objType)
+		sig, status := c.resolveStruct(base)
+		if status == typeLookupAmbiguous {
+			return ast.TypeInvalid, c.nodeError(ex, "ambiguous struct type '%s'; qualify or disambiguate the package source", objType)
+		}
+		if status != typeLookupFound {
+			return ast.TypeInvalid, c.nodeError(ex, "field access requires struct type, got %s", objType)
 		}
 		mapping, err := bindTypeParams(sig.TypeParams, args)
 		if err != nil {
@@ -626,9 +658,9 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 		}
 		rawField, ok := sig.Fields[ex.Field]
 		if !ok {
-			return ast.TypeInvalid, fmt.Errorf("type error: struct '%s' has no field '%s'%s", objType, ex.Field, suggestNameSuffix(ex.Field, mapKeys(sig.Fields)))
+			return ast.TypeInvalid, c.nodeError(ex, "struct '%s' has no field '%s'%s", objType, ex.Field, suggestNameSuffix(ex.Field, mapKeys(sig.Fields)))
 		}
-		return substType(rawField, mapping), nil
+		return substType(structuredTypeToAST(rawField), mapping), nil
 	case *ast.UnaryExpr:
 		r, err := c.exprType(ex.Right)
 		if err != nil {
@@ -639,14 +671,14 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 			if r == ast.TypeInt || r == ast.TypeFloat {
 				return r, nil
 			}
-			return ast.TypeInvalid, fmt.Errorf("type error: unary '-' requires numeric type")
+			return ast.TypeInvalid, c.nodeError(ex, "unary '-' requires numeric type")
 		case "!":
 			if r == ast.TypeBool {
 				return ast.TypeBool, nil
 			}
-			return ast.TypeInvalid, fmt.Errorf("type error: unary '!' requires bool")
+			return ast.TypeInvalid, c.nodeError(ex, "unary '!' requires bool")
 		}
-		return ast.TypeInvalid, fmt.Errorf("type error: unsupported unary operator '%s'", ex.Op)
+		return ast.TypeInvalid, c.nodeError(ex, "unsupported unary operator '%s'", ex.Op)
 	case *ast.BinaryExpr:
 		l, err := c.exprType(ex.Left)
 		if err != nil {
@@ -659,7 +691,7 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 		switch ex.Op {
 		case "+", "-", "*", "/", "%":
 			if l != r {
-				return ast.TypeInvalid, fmt.Errorf("type error: operator '%s' requires matching operands", ex.Op)
+				return ast.TypeInvalid, c.nodeError(ex, "operator '%s' requires matching operands", ex.Op)
 			}
 			if ex.Op == "+" && l == ast.TypeString {
 				return ast.TypeString, nil
@@ -670,26 +702,47 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 				}
 				return l, nil
 			}
-			return ast.TypeInvalid, fmt.Errorf("type error: invalid operands for '%s'", ex.Op)
+			return ast.TypeInvalid, c.nodeError(ex, "invalid operands for '%s'", ex.Op)
 		case "==", "!=":
 			if l != r {
-				return ast.TypeInvalid, fmt.Errorf("type error: comparison requires same types")
+				return ast.TypeInvalid, c.nodeError(ex, "comparison requires same types")
 			}
 			return ast.TypeBool, nil
 		case "<", "<=", ">", ">=":
 			if l != r || (l != ast.TypeInt && l != ast.TypeFloat && l != ast.TypeString) {
-				return ast.TypeInvalid, fmt.Errorf("type error: invalid operands for comparison")
+				return ast.TypeInvalid, c.nodeError(ex, "invalid operands for comparison")
 			}
 			return ast.TypeBool, nil
 		case "&&", "||":
 			if l == ast.TypeBool && r == ast.TypeBool {
 				return ast.TypeBool, nil
 			}
-			return ast.TypeInvalid, fmt.Errorf("type error: logical operators require bool")
+			return ast.TypeInvalid, c.nodeError(ex, "logical operators require bool")
 		}
-		return ast.TypeInvalid, fmt.Errorf("type error: unsupported operator '%s'", ex.Op)
+		return ast.TypeInvalid, c.nodeError(ex, "unsupported operator '%s'", ex.Op)
 	case *ast.CallExpr:
 		if ex.Receiver != nil {
+			if pkg, ok := ex.Receiver.(*ast.IdentExpr); ok {
+				if _, imported := c.resolveImportedPackage(pkg.Name); imported {
+					if sig, ok := c.resolveQualifiedFunction(pkg.Name, ex.Method); ok {
+						visibleName := ex.Method
+						ex.Callee = firstNonEmpty(sig.InternalName, ex.Method)
+						ex.Args = ex.Args
+						ex.Receiver = nil
+						ex.Method = ""
+						return c.checkCallExpr(visibleName, ex.Args, sig)
+					}
+					return ast.TypeInvalid, c.nodeError(ex, "package '%s' has no public function '%s'", pkg.Name, ex.Method)
+				}
+				if sig, ok := c.resolveQualifiedFunction(pkg.Name, ex.Method); ok {
+					visibleName := ex.Method
+					ex.Callee = firstNonEmpty(sig.InternalName, ex.Method)
+					ex.Args = ex.Args
+					ex.Receiver = nil
+					ex.Method = ""
+					return c.checkCallExpr(visibleName, ex.Args, sig)
+				}
+			}
 			receiverType, err := c.exprType(ex.Receiver)
 			if err != nil {
 				return ast.TypeInvalid, err
@@ -699,39 +752,56 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 				base = string(receiverType)
 			}
 			resolvedName := fmt.Sprintf("%s_%s", base, ex.Method)
-			sig, ok := c.functions[resolvedName]
-			if !ok {
-				return ast.TypeInvalid, fmt.Errorf("type error: unknown method '%s' on '%s'%s (expected function '%s')", ex.Method, receiverType, c.suggestMethodName(base, ex.Method), resolvedName)
+			sig, status := c.resolveFunction(resolvedName)
+			if status == typeLookupAmbiguous {
+				return ast.TypeInvalid, c.nodeError(ex, "method '%s' on '%s' is ambiguous across packages", ex.Method, receiverType)
 			}
-			ex.Callee = resolvedName
+			if status != typeLookupFound {
+				if _, hidden := c.resolveHiddenFunction(resolvedName); hidden {
+					return ast.TypeInvalid, c.nodeError(ex, "method '%s' on '%s' is not public in this package", ex.Method, receiverType)
+				}
+				return ast.TypeInvalid, c.nodeError(ex, "unknown method '%s' on '%s'%s (expected function '%s')", ex.Method, receiverType, c.suggestMethodName(base, ex.Method), resolvedName)
+			}
+			ex.Callee = firstNonEmpty(sig.InternalName, resolvedName)
 			ex.Args = append([]ast.Expr{ex.Receiver}, ex.Args...)
 			ex.Receiver = nil
 			ex.Method = ""
-			return c.checkCallExpr(ex.Callee, ex.Args, sig)
+			return c.checkCallExpr(resolvedName, ex.Args, sig)
 		}
-		sig, ok := c.functions[ex.Callee]
-		if !ok {
-			return ast.TypeInvalid, fmt.Errorf("type error: unknown function '%s'%s", ex.Callee, suggestNameSuffix(ex.Callee, mapKeys(c.functions)))
+		sig, status := c.resolveFunction(ex.Callee)
+		if status == typeLookupAmbiguous {
+			return ast.TypeInvalid, c.nodeError(ex, "function '%s' is ambiguous across packages", ex.Callee)
 		}
-		return c.checkCallExpr(ex.Callee, ex.Args, sig)
+		if status != typeLookupFound {
+			if _, hidden := c.resolveHiddenFunction(ex.Callee); hidden {
+				return ast.TypeInvalid, c.nodeError(ex, "function '%s' is not public in this package", ex.Callee)
+			}
+			return ast.TypeInvalid, c.nodeError(ex, "unknown function '%s'%s", ex.Callee, c.suggestVisibleFunctionName(ex.Callee))
+		}
+		visibleName := ex.Callee
+		ex.Callee = firstNonEmpty(sig.InternalName, ex.Callee)
+		return c.checkCallExpr(visibleName, ex.Args, sig)
 	case *ast.MatchExpr:
-		enumName, variants, err := c.resolveMatchSubjectEnum(ex.Subject)
+		enumName, enumSig, err := c.resolveMatchSubjectEnum(ex.Subject)
 		if err != nil {
 			return ast.TypeInvalid, err
 		}
 		unguarded := map[string]bool{}
 		armType := ast.TypeInvalid
-		for _, arm := range ex.Arms {
-			if err := c.validateMatchVariant(enumName, variants, unguarded, arm.Variant, arm.Guard); err != nil {
+		for i := range ex.Arms {
+			arm := &ex.Arms[i]
+			variant, err := c.validateMatchVariant(enumName, enumSig, unguarded, arm.Variant, arm.Guard, arm.Range)
+			if err != nil {
 				return ast.TypeInvalid, err
 			}
+			arm.Variant = variant
 			if arm.Guard != nil {
 				t, err := c.exprType(arm.Guard)
 				if err != nil {
 					return ast.TypeInvalid, err
 				}
 				if t != ast.TypeBool {
-					return ast.TypeInvalid, fmt.Errorf("type error: match guard must be bool, got %s", t)
+					return ast.TypeInvalid, c.nodeError(arm.Guard, "match guard must be bool, got %s", t)
 				}
 			}
 			t, err := c.exprType(arm.Value)
@@ -743,50 +813,75 @@ func (c *Checker) exprType(e ast.Expr) (ast.Type, error) {
 				continue
 			}
 			if armType != t {
-				return ast.TypeInvalid, fmt.Errorf("type error: match expression arm type mismatch, expected %s got %s", armType, t)
+				return ast.TypeInvalid, c.fieldError(arm.Range, "match expression arm type mismatch, expected %s got %s", armType, t)
 			}
 		}
-		if err := ensureMatchExhaustive(enumName, variants, unguarded); err != nil {
+		if err := ensureMatchExhaustive(enumName, enumSig.Variants, unguarded); err != nil {
 			return ast.TypeInvalid, err
 		}
 		if armType == ast.TypeInvalid {
-			return ast.TypeInvalid, fmt.Errorf("type error: match expression must have at least one arm")
+			return ast.TypeInvalid, c.nodeError(ex, "match expression must have at least one arm")
 		}
 		ex.ResolvedType = armType
 		return armType, nil
 	default:
-		return ast.TypeInvalid, fmt.Errorf("type error: unsupported expression")
+		return ast.TypeInvalid, c.nodeError(e, "unsupported expression")
 	}
 }
 
-func (c *Checker) resolveMatchSubjectEnum(subject ast.Expr) (string, map[string]bool, error) {
+func (c *Checker) resolveMatchSubjectEnum(subject ast.Expr) (string, EnumSig, error) {
 	subjectType, err := c.exprType(subject)
 	if err != nil {
-		return "", nil, err
+		return "", EnumSig{}, err
 	}
 	enumName := string(subjectType)
-	variants, ok := c.enumVars[enumName]
-	if !ok {
-		return "", nil, fmt.Errorf("type error: match subject must be enum, got %s", subjectType)
+	enumSig, status := c.resolveEnum(enumName)
+	if status == typeLookupAmbiguous {
+		return "", EnumSig{}, c.nodeError(subject, "match subject enum '%s' is ambiguous across packages", subjectType)
 	}
-	return enumName, variants, nil
+	if status != typeLookupFound {
+		return "", EnumSig{}, c.nodeError(subject, "match subject must be enum, got %s", subjectType)
+	}
+	return enumName, enumSig, nil
 }
 
-func (c *Checker) validateMatchVariant(enumName string, variants map[string]bool, unguarded map[string]bool, variant string, guard ast.Expr) error {
+func (c *Checker) validateMatchVariant(enumName string, enumSig EnumSig, unguarded map[string]bool, variant string, guard ast.Expr, span source.Span) (string, error) {
+	variant, err := c.normalizeMatchVariant(enumName, enumSig, variant, span)
+	if err != nil {
+		return "", err
+	}
+	variants := enumSig.Variants
 	if !variants[variant] {
-		return fmt.Errorf("type error: unknown variant '%s' for enum '%s'", variant, enumName)
+		return "", c.diagAt(span, "unknown variant '%s' for enum '%s'", variant, enumName)
 	}
 	if guard == nil {
 		if unguarded[variant] {
-			return fmt.Errorf("type error: duplicate match arm for variant '%s'", variant)
+			return "", c.diagAt(span, "duplicate match arm for variant '%s'", variant)
 		}
 		unguarded[variant] = true
-		return nil
+		return variant, nil
 	}
 	if unguarded[variant] {
-		return fmt.Errorf("type error: guarded match arm must appear before unguarded arm for variant '%s'", variant)
+		return "", c.nodeError(guard, "guarded match arm must appear before unguarded arm for variant '%s'", variant)
 	}
-	return nil
+	return variant, nil
+}
+
+func (c *Checker) normalizeMatchVariant(enumName string, enumSig EnumSig, variant string, span source.Span) (string, error) {
+	if !strings.Contains(variant, ".") {
+		return variant, nil
+	}
+	parts := strings.Split(variant, ".")
+	if len(parts) < 2 {
+		return variant, nil
+	}
+	alias := strings.Join(parts[:len(parts)-1], ".")
+	base := parts[len(parts)-1]
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok || targetPkg != enumSig.PackageID {
+		return "", c.diagAt(span, "match arm variant '%s' does not belong to enum '%s'", variant, enumName)
+	}
+	return base, nil
 }
 
 func ensureMatchExhaustive(enumName string, variants map[string]bool, seen map[string]bool) error {
@@ -805,62 +900,47 @@ func ensureMatchExhaustive(enumName string, variants map[string]bool, seen map[s
 
 func (c *Checker) checkCallExpr(name string, args []ast.Expr, sig FuncSig) (ast.Type, error) {
 	if len(args) != len(sig.Params) {
-		return ast.TypeInvalid, fmt.Errorf("type error: function '%s' expects %d args, got %d", name, len(sig.Params), len(args))
+		return ast.TypeInvalid, c.nodeError(firstArgNode(args), "function '%s' expects %d args, got %d", name, len(sig.Params), len(args))
 	}
 	mapping := map[string]ast.Type{}
+	typeParams := typeParamSet(sig.TypeParams)
 	for i, arg := range args {
 		at, err := c.exprType(arg)
 		if err != nil {
 			return ast.TypeInvalid, err
 		}
 		expected := sig.Params[i]
-		if expected == ast.TypeAny {
+		rawExpected := structuredTypeToAST(expected)
+		if canonExpected, err := c.canonicalizeTypeRef(rawExpected, typeParams, false); err == nil {
+			rawExpected = canonExpected
+		}
+		if rawExpected == ast.TypeAny {
 			continue
 		}
-		if !unifyTypeParams(expected, at, mapping, sig.TypeParams) {
-			return ast.TypeInvalid, fmt.Errorf("type error: arg %d to '%s' expected %s got %s", i+1, name, expected, at)
+		if !unifyTypeParams(rawExpected, at, mapping, sig.TypeParams) {
+			return ast.TypeInvalid, c.nodeError(arg, "arg %d to '%s' expected %s got %s", i+1, name, rawExpected, at)
 		}
 	}
-	ret := sig.Ret
+	ret := structuredTypeToAST(sig.Ret)
 	if len(mapping) > 0 {
 		ret = substType(ret, mapping)
 	}
-	if err := c.validateTypeParamBoundsForMapping(sig.TypeParamBounds, mapping, name); err != nil {
+	if canonRet, err := c.canonicalizeTypeRef(ret, typeParams, ret == ast.TypeVoid); err == nil {
+		ret = canonRet
+	}
+	if err := c.validateTypeParamBoundsForMapping(structuredTypeMapToAST(sig.TypeParamBounds), mapping, name); err != nil {
 		return ast.TypeInvalid, err
 	}
 	for _, tp := range sig.TypeParams {
 		if typeContainsParam(ret, tp) {
-			return ast.TypeInvalid, fmt.Errorf("type error: could not infer return type for generic function '%s'", name)
+			return ast.TypeInvalid, diag.New("type error", fmt.Sprintf("could not infer return type for generic function '%s'", name), source.Span{})
 		}
 	}
 	return ret, nil
 }
 
 func unifyTypeParams(expected ast.Type, actual ast.Type, mapping map[string]ast.Type, params []string) bool {
-	if expected == ast.TypeAny {
-		return true
-	}
-	if contains(params, string(expected)) {
-		if bound, ok := mapping[string(expected)]; ok {
-			return bound == actual
-		}
-		mapping[string(expected)] = actual
-		return true
-	}
-	baseE, argsE, okE := splitGenericType(string(expected))
-	if okE {
-		baseA, argsA, okA := splitGenericType(string(actual))
-		if !okA || baseA != baseE || len(argsA) != len(argsE) {
-			return false
-		}
-		for i := range argsE {
-			if !unifyTypeParams(ast.Type(argsE[i]), ast.Type(argsA[i]), mapping, params) {
-				return false
-			}
-		}
-		return true
-	}
-	return expected == actual
+	return baztypes.Unify(expected, actual, mapping, params)
 }
 
 func (c *Checker) validateTypeParamBoundsForMapping(bounds map[string]ast.Type, mapping map[string]ast.Type, owner string) error {
@@ -883,11 +963,15 @@ func (c *Checker) validateTypeParamBoundsForMapping(bounds map[string]ast.Type, 
 }
 
 func (c *Checker) requireImplements(t ast.Type, iface ast.Type) error {
-	base, _, ok := splitGenericType(string(t))
+	base, ok := baztypes.Base(t)
 	if ok {
 		t = ast.Type(base)
 	}
-	if _, ok := c.structs[string(t)]; !ok {
+	_, structStatus := c.resolveStruct(string(t))
+	if structStatus == typeLookupAmbiguous {
+		return fmt.Errorf("'%s' is an ambiguous struct type", t)
+	}
+	if structStatus != typeLookupFound {
 		return fmt.Errorf("'%s' is not a struct type", t)
 	}
 	if !c.hasImpl(t, string(iface)) {
@@ -897,12 +981,12 @@ func (c *Checker) requireImplements(t ast.Type, iface ast.Type) error {
 }
 
 func (c *Checker) hasImpl(structType ast.Type, iface string) bool {
-	base, _, ok := splitGenericType(string(structType))
+	base, ok := baztypes.Base(structType)
 	if ok {
 		structType = ast.Type(base)
 	}
 	for _, impl := range c.impls {
-		implBase, _, ok := splitGenericType(string(impl.StructType))
+		implBase, ok := baztypes.Base(impl.StructType)
 		if ok {
 			if implBase == string(structType) && impl.InterfaceName == iface {
 				return true
@@ -918,173 +1002,248 @@ func (c *Checker) hasImpl(structType ast.Type, iface string) bool {
 
 func (c *Checker) checkImpls() error {
 	for _, impl := range c.impls {
-		base, _, ok := splitGenericType(string(impl.StructType))
+		prevPackage := c.currentPackage
+		c.currentPackage = impl.PackageID
+		base, ok := baztypes.Base(impl.StructType)
 		if !ok {
 			base = string(impl.StructType)
 		}
-		if _, exists := c.structs[base]; !exists {
+		_, structStatus := c.resolveStruct(base)
+		if structStatus == typeLookupAmbiguous {
+			c.currentPackage = prevPackage
+			return fmt.Errorf("type error: impl target struct '%s' is ambiguous across packages", impl.StructType)
+		}
+		if structStatus != typeLookupFound {
+			c.currentPackage = prevPackage
 			return fmt.Errorf("type error: impl target struct '%s' not found", impl.StructType)
 		}
-		iface, exists := c.interfaces[impl.InterfaceName]
-		if !exists {
+		iface, interfaceStatus := c.resolveInterface(impl.InterfaceName)
+		if interfaceStatus == typeLookupAmbiguous {
+			c.currentPackage = prevPackage
+			return fmt.Errorf("type error: interface '%s' is ambiguous across packages", impl.InterfaceName)
+		}
+		if interfaceStatus != typeLookupFound {
+			c.currentPackage = prevPackage
 			return fmt.Errorf("type error: interface '%s' not found for impl", impl.InterfaceName)
 		}
 		for mname, msig := range iface.Methods {
 			fnName := fmt.Sprintf("%s_%s", base, mname)
-			fn, ok := c.functions[fnName]
-			if !ok {
+			fn, fnStatus := c.resolveFunction(fnName)
+			if fnStatus == typeLookupAmbiguous {
+				c.currentPackage = prevPackage
+				return fmt.Errorf("type error: impl %s:%s method function '%s' is ambiguous across packages", impl.StructType, impl.InterfaceName, fnName)
+			}
+			if fnStatus != typeLookupFound {
+				c.currentPackage = prevPackage
 				return fmt.Errorf("type error: impl %s:%s missing function '%s'", impl.StructType, impl.InterfaceName, fnName)
 			}
-			if len(msig.Params) > 0 && msig.Params[0] == impl.StructType {
+			if len(msig.Params) > 0 && structuredTypeToAST(msig.Params[0]) == impl.StructType {
 				if len(fn.Params) != len(msig.Params) {
+					c.currentPackage = prevPackage
 					return fmt.Errorf("type error: '%s' must have %d params", fnName, len(msig.Params))
 				}
 				for i := range msig.Params {
-					if fn.Params[i] != msig.Params[i] {
+					if structuredTypeToAST(fn.Params[i]) != structuredTypeToAST(msig.Params[i]) {
+						c.currentPackage = prevPackage
 						return fmt.Errorf("type error: '%s' param %d mismatch", fnName, i+1)
 					}
 				}
 			} else {
 				if len(fn.Params) != len(msig.Params)+1 {
+					c.currentPackage = prevPackage
 					return fmt.Errorf("type error: '%s' must have receiver + %d params", fnName, len(msig.Params))
 				}
-				if fn.Params[0] != impl.StructType {
+				if structuredTypeToAST(fn.Params[0]) != impl.StructType {
+					c.currentPackage = prevPackage
 					return fmt.Errorf("type error: '%s' first param must be %s", fnName, impl.StructType)
 				}
 				for i := range msig.Params {
-					if fn.Params[i+1] != msig.Params[i] {
+					if structuredTypeToAST(fn.Params[i+1]) != structuredTypeToAST(msig.Params[i]) {
+						c.currentPackage = prevPackage
 						return fmt.Errorf("type error: '%s' param %d mismatch", fnName, i+2)
 					}
 				}
 			}
-			if fn.Ret != msig.Ret {
+			if structuredTypeToAST(fn.Ret) != structuredTypeToAST(msig.Ret) {
+				c.currentPackage = prevPackage
 				return fmt.Errorf("type error: '%s' return type mismatch", fnName)
 			}
 		}
+		c.currentPackage = prevPackage
 	}
 	return nil
 }
 
 func bindTypeParams(typeParams []string, args []string) (map[string]ast.Type, error) {
-	if len(typeParams) == 0 {
-		if len(args) > 0 {
-			return nil, fmt.Errorf("non-generic type used with type arguments")
-		}
-		return map[string]ast.Type{}, nil
+	actual := make([]ast.Type, 0, len(args))
+	for _, arg := range args {
+		actual = append(actual, ast.Type(arg))
 	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("generic type requires %d type arguments", len(typeParams))
-	}
-	if len(typeParams) != len(args) {
-		return nil, fmt.Errorf("generic type expected %d type arguments, got %d", len(typeParams), len(args))
-	}
-	m := map[string]ast.Type{}
-	for i, tp := range typeParams {
-		m[tp] = ast.Type(args[i])
-	}
-	return m, nil
+	return baztypes.BindTypeParams(typeParams, actual)
 }
 
 func substType(t ast.Type, mapping map[string]ast.Type) ast.Type {
-	if v, ok := mapping[string(t)]; ok {
-		return v
-	}
-	base, args, ok := splitGenericType(string(t))
-	if !ok {
-		return t
-	}
-	mapped := make([]string, 0, len(args))
-	for _, a := range args {
-		mapped = append(mapped, string(substType(ast.Type(a), mapping)))
-	}
-	return ast.Type(fmt.Sprintf("%s[%s]", base, strings.Join(mapped, ",")))
+	return baztypes.Substitute(t, mapping)
 }
 
 func (c *Checker) validateTypeRef(t ast.Type, typeParams map[string]bool, allowVoid bool) error {
+	_, err := c.canonicalizeTypeRef(t, typeParams, allowVoid)
+	return err
+}
+
+func (c *Checker) canonicalizeTypeRef(t ast.Type, typeParams map[string]bool, allowVoid bool) (ast.Type, error) {
 	if t == ast.TypeInvalid {
-		return fmt.Errorf("type error: invalid type")
+		return "", fmt.Errorf("type error: invalid type")
 	}
 	if t == ast.TypeVoid && !allowVoid {
-		return fmt.Errorf("type error: void cannot be used here")
+		return "", fmt.Errorf("type error: void cannot be used here")
 	}
 	name := string(t)
 	if typeParams != nil && typeParams[name] {
-		return nil
+		return t, nil
 	}
-	if isBuiltin(t) || c.structs[name].Fields != nil || c.enums[name] || c.interfaces[name].Methods != nil {
-		return nil
+	if isBuiltin(t) {
+		return t, nil
 	}
 	if base, args, ok := splitGenericType(name); ok {
-		sig, ok := c.structs[base]
-		if !ok {
-			return fmt.Errorf("type error: unknown generic base type '%s'", base)
+		if alias, target, qualified := splitQualifiedTypeBase(base); qualified {
+			sig, found := c.resolveQualifiedStruct(alias, target)
+			if !found {
+				return "", fmt.Errorf("type error: package '%s' has no public type '%s'", alias, target)
+			}
+			if len(sig.TypeParams) != len(args) {
+				return "", fmt.Errorf("type error: type '%s' expects %d args, got %d", base, len(sig.TypeParams), len(args))
+			}
+			canonArgs := make([]string, 0, len(args))
+			for _, a := range args {
+				canonArg, err := c.canonicalizeTypeRef(ast.Type(a), typeParams, false)
+				if err != nil {
+					return "", err
+				}
+				canonArgs = append(canonArgs, string(canonArg))
+			}
+			for i, tp := range sig.TypeParams {
+				bound := sig.TypeParamBounds[tp]
+				rawBound := structuredTypeToAST(bound)
+				if rawBound == "" {
+					continue
+				}
+				arg := ast.Type(args[i])
+				if typeParams != nil && typeParams[string(arg)] {
+					continue
+				}
+				if err := c.requireImplements(arg, rawBound); err != nil {
+					return "", fmt.Errorf("type error: type argument '%s' does not satisfy bound %s: %w", arg, rawBound, err)
+				}
+			}
+			return ast.Type(fmt.Sprintf("%s[%s]", firstNonEmpty(sig.InternalName, target), strings.Join(canonArgs, ","))), nil
+		}
+	}
+	if alias, target, qualified := splitQualifiedTypeBase(name); qualified {
+		if sig, ok := c.resolveQualifiedStruct(alias, target); ok {
+			return ast.Type(firstNonEmpty(sig.InternalName, target)), nil
+		}
+		if sig, ok := c.resolveQualifiedEnum(alias, target); ok {
+			return ast.Type(firstNonEmpty(sig.InternalName, target)), nil
+		}
+		if sig, ok := c.resolveQualifiedInterface(alias, target); ok {
+			return ast.Type(firstNonEmpty(sig.InternalName, target)), nil
+		}
+		return "", fmt.Errorf("type error: package '%s' has no public type '%s'", alias, target)
+	}
+	if sig, status := c.resolveStruct(name); status == typeLookupFound {
+		return ast.Type(firstNonEmpty(sig.InternalName, name)), nil
+	}
+	if sig, status := c.resolveEnum(name); status == typeLookupFound {
+		return ast.Type(firstNonEmpty(sig.InternalName, name)), nil
+	}
+	if sig, status := c.resolveInterface(name); status == typeLookupFound {
+		return ast.Type(firstNonEmpty(sig.InternalName, name)), nil
+	}
+	if _, status := c.resolveStruct(name); status == typeLookupAmbiguous {
+		return "", fmt.Errorf("type error: ambiguous type '%s'", t)
+	}
+	if _, status := c.resolveEnum(name); status == typeLookupAmbiguous {
+		return "", fmt.Errorf("type error: ambiguous type '%s'", t)
+	}
+	if _, status := c.resolveInterface(name); status == typeLookupAmbiguous {
+		return "", fmt.Errorf("type error: ambiguous type '%s'", t)
+	}
+	if base, args, ok := splitGenericType(name); ok {
+		sig, status := c.resolveStruct(base)
+		if status == typeLookupAmbiguous {
+			return "", fmt.Errorf("type error: ambiguous generic base type '%s'", base)
+		}
+		if status != typeLookupFound {
+			return "", fmt.Errorf("type error: unknown generic base type '%s'", base)
 		}
 		if len(sig.TypeParams) != len(args) {
-			return fmt.Errorf("type error: type '%s' expects %d args, got %d", base, len(sig.TypeParams), len(args))
+			return "", fmt.Errorf("type error: type '%s' expects %d args, got %d", base, len(sig.TypeParams), len(args))
 		}
+		canonArgs := make([]string, 0, len(args))
 		for _, a := range args {
-			if err := c.validateTypeRef(ast.Type(a), typeParams, false); err != nil {
-				return err
+			canonArg, err := c.canonicalizeTypeRef(ast.Type(a), typeParams, false)
+			if err != nil {
+				return "", err
 			}
+			canonArgs = append(canonArgs, string(canonArg))
 		}
 		for i, tp := range sig.TypeParams {
 			bound := sig.TypeParamBounds[tp]
-			if bound == "" {
+			rawBound := structuredTypeToAST(bound)
+			if rawBound == "" {
 				continue
 			}
 			arg := ast.Type(args[i])
 			if typeParams != nil && typeParams[string(arg)] {
 				continue
 			}
-			if err := c.requireImplements(arg, bound); err != nil {
-				return fmt.Errorf("type error: type argument '%s' does not satisfy bound %s: %w", arg, bound, err)
+			if err := c.requireImplements(arg, rawBound); err != nil {
+				return "", fmt.Errorf("type error: type argument '%s' does not satisfy bound %s: %w", arg, rawBound, err)
 			}
 		}
-		return nil
+		return ast.Type(fmt.Sprintf("%s[%s]", firstNonEmpty(sig.InternalName, base), strings.Join(canonArgs, ","))), nil
 	}
-	return fmt.Errorf("type error: unknown type '%s'", t)
+	return "", fmt.Errorf("type error: unknown type '%s'%s", t, c.suggestVisibleTypeName(name))
 }
 
 func splitGenericType(t string) (string, []string, bool) {
-	open := strings.IndexRune(t, '[')
-	close := strings.LastIndex(t, "]")
-	if open <= 0 || close <= open {
+	base, ok := baztypes.Base(ast.Type(t))
+	if !ok {
 		return "", nil, false
 	}
-	base := t[:open]
-	inner := t[open+1 : close]
-	parts := splitTopLevel(inner)
-	if len(parts) == 0 {
+	args, ok := baztypes.Args(ast.Type(t))
+	if !ok {
 		return "", nil, false
 	}
-	return base, parts, true
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, string(arg))
+	}
+	return base, out, true
 }
 
 func splitTopLevel(s string) []string {
-	depth := 0
-	parts := []string{}
-	start := 0
-	for i, r := range s {
-		switch r {
-		case '[':
-			depth++
-		case ']':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(s[start:i]))
-				start = i + 1
-			}
-		}
+	args, ok := baztypes.Args(ast.Type("X[" + s + "]"))
+	if !ok {
+		return nil
 	}
-	parts = append(parts, strings.TrimSpace(s[start:]))
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, string(arg))
 	}
 	return out
+}
+
+func splitQualifiedTypeBase(name string) (string, string, bool) {
+	parts := strings.Split(name, ".")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	if parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 func isBuiltin(t ast.Type) bool {
@@ -1106,35 +1265,643 @@ func contains(values []string, target string) bool {
 }
 
 func typeContainsParam(t ast.Type, param string) bool {
-	if string(t) == param {
-		return true
+	return baztypes.ContainsParam(t, param)
+}
+
+func typeParamSet(params []string) map[string]bool {
+	if len(params) == 0 {
+		return nil
 	}
-	base, args, ok := splitGenericType(string(t))
-	if !ok || base == "" {
-		return false
+	out := make(map[string]bool, len(params))
+	for _, param := range params {
+		out[param] = true
 	}
-	for _, a := range args {
-		if typeContainsParam(ast.Type(a), param) {
-			return true
-		}
-	}
-	return false
+	return out
 }
 
 func (c *Checker) suggestVisibleName(name string) string {
 	candidates := map[string]bool{}
-	for i := len(c.scopes) - 1; i >= 0; i-- {
-		for n := range c.scopes[i] {
-			if strings.HasPrefix(n, "_#") {
-				continue
-			}
+	for _, n := range c.scopes.visibleNames() {
+		candidates[n] = true
+	}
+	for n, g := range c.globals {
+		if c.canAccessPackage(g.PackageID, g.Public) {
 			candidates[n] = true
 		}
 	}
-	for n := range c.globals {
-		candidates[n] = true
+	if c.currentPackage != "" {
+		if byPkg := c.packageGlobals[c.currentPackage]; byPkg != nil {
+			for n := range byPkg {
+				candidates[n] = true
+			}
+		}
+		for _, pkgID := range c.currentBareImportPackageIDs() {
+			if byPkg := c.packageGlobals[pkgID]; byPkg != nil {
+				for n, g := range byPkg {
+					if c.canAccessPackage(g.PackageID, g.Public) {
+						candidates[n] = true
+					}
+				}
+			}
+		}
 	}
+	c.addQualifiedGlobalCandidates(candidates)
 	return suggestNameSuffix(name, mapKeys(candidates))
+}
+
+func (c *Checker) suggestVisibleFunctionName(name string) string {
+	candidates := map[string]bool{}
+	for n, sig := range c.functions {
+		if c.canAccessPackage(sig.PackageID, sig.Public) {
+			candidates[n] = true
+		}
+	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageFunctions[c.currentPackage]; byPkg != nil {
+			for n := range byPkg {
+				candidates[n] = true
+			}
+		}
+		for _, pkgID := range c.currentBareImportPackageIDs() {
+			if byPkg := c.packageFunctions[pkgID]; byPkg != nil {
+				for n, sig := range byPkg {
+					if c.canAccessPackage(sig.PackageID, sig.Public) {
+						candidates[n] = true
+					}
+				}
+			}
+		}
+	}
+	c.addQualifiedFunctionCandidates(candidates)
+	return suggestNameSuffix(name, mapKeys(candidates))
+}
+
+func (c *Checker) suggestVisibleTypeName(name string) string {
+	candidates := map[string]bool{}
+	for n, sig := range c.structs {
+		if c.canAccessPackage(sig.PackageID, sig.Public) {
+			candidates[n] = true
+		}
+	}
+	for n, sig := range c.interfaces {
+		if c.canAccessPackage(sig.PackageID, sig.Public) {
+			candidates[n] = true
+		}
+	}
+	for n, sig := range c.enums {
+		if c.canAccessPackage(sig.PackageID, sig.Public) {
+			candidates[n] = true
+		}
+	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageStructs[c.currentPackage]; byPkg != nil {
+			for n := range byPkg {
+				candidates[n] = true
+			}
+		}
+		if byPkg := c.packageInterfaces[c.currentPackage]; byPkg != nil {
+			for n := range byPkg {
+				candidates[n] = true
+			}
+		}
+		if byPkg := c.packageEnums[c.currentPackage]; byPkg != nil {
+			for n := range byPkg {
+				candidates[n] = true
+			}
+		}
+		for _, pkgID := range c.currentBareImportPackageIDs() {
+			if byPkg := c.packageStructs[pkgID]; byPkg != nil {
+				for n, sig := range byPkg {
+					if c.canAccessPackage(sig.PackageID, sig.Public) {
+						candidates[n] = true
+					}
+				}
+			}
+			if byPkg := c.packageInterfaces[pkgID]; byPkg != nil {
+				for n, sig := range byPkg {
+					if c.canAccessPackage(sig.PackageID, sig.Public) {
+						candidates[n] = true
+					}
+				}
+			}
+			if byPkg := c.packageEnums[pkgID]; byPkg != nil {
+				for n, sig := range byPkg {
+					if c.canAccessPackage(sig.PackageID, sig.Public) {
+						candidates[n] = true
+					}
+				}
+			}
+		}
+	}
+	c.addQualifiedTypeCandidates(candidates)
+	return suggestNameSuffix(name, mapKeys(candidates))
+}
+
+func (c *Checker) addQualifiedGlobalCandidates(candidates map[string]bool) {
+	for alias, targetPkg := range c.currentImportTargets() {
+		if !isUsableQualifiedAlias(alias) {
+			continue
+		}
+		if byPkg := c.packageGlobals[targetPkg]; byPkg != nil {
+			for name, g := range byPkg {
+				if g.Public {
+					candidates[alias+"."+name] = true
+				}
+			}
+		}
+	}
+}
+
+func (c *Checker) addQualifiedFunctionCandidates(candidates map[string]bool) {
+	for alias, targetPkg := range c.currentImportTargets() {
+		if !isUsableQualifiedAlias(alias) {
+			continue
+		}
+		if byPkg := c.packageFunctions[targetPkg]; byPkg != nil {
+			for name, sig := range byPkg {
+				if sig.Public {
+					candidates[alias+"."+name] = true
+				}
+			}
+		}
+	}
+}
+
+func (c *Checker) addQualifiedTypeCandidates(candidates map[string]bool) {
+	for alias, targetPkg := range c.currentImportTargets() {
+		if !isUsableQualifiedAlias(alias) {
+			continue
+		}
+		if byPkg := c.packageStructs[targetPkg]; byPkg != nil {
+			for name, sig := range byPkg {
+				if sig.Public {
+					candidates[alias+"."+name] = true
+				}
+			}
+		}
+		if byPkg := c.packageInterfaces[targetPkg]; byPkg != nil {
+			for name, sig := range byPkg {
+				if sig.Public {
+					candidates[alias+"."+name] = true
+				}
+			}
+		}
+		if byPkg := c.packageEnums[targetPkg]; byPkg != nil {
+			for name, sig := range byPkg {
+				if sig.Public {
+					candidates[alias+"."+name] = true
+				}
+			}
+		}
+	}
+}
+
+func (c *Checker) currentImportTargets() map[string]string {
+	out := map[string]string{}
+	if c.currentPackage == "" {
+		return out
+	}
+	byAlias := c.imports[c.currentPackage]
+	for alias, binding := range byAlias {
+		out[alias] = binding.TargetPackageID
+	}
+	return out
+}
+
+func (c *Checker) canAccessPackage(packageID string, public bool) bool {
+	return packageID == "" || packageID == c.currentPackage || public
+}
+
+func (c *Checker) resolveImportedPackage(alias string) (string, bool) {
+	if c.currentPackage == "" {
+		return "", false
+	}
+	byAlias := c.imports[c.currentPackage]
+	if byAlias == nil {
+		return "", false
+	}
+	binding, ok := byAlias[alias]
+	return binding.TargetPackageID, ok
+}
+
+func (c *Checker) canUseBarePackage(packageID string) bool {
+	if packageID == "" || packageID == c.currentPackage {
+		return true
+	}
+	byPkg := c.bareImports[c.currentPackage]
+	return byPkg != nil && byPkg[packageID]
+}
+
+func (c *Checker) currentBareImportPackageIDs() []string {
+	if c.currentPackage == "" {
+		return nil
+	}
+	byPkg := c.bareImports[c.currentPackage]
+	if len(byPkg) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(byPkg))
+	for pkgID := range byPkg {
+		out = append(out, pkgID)
+	}
+	return out
+}
+
+func (c *Checker) registerStruct(name string, sig StructSig) error {
+	if sig.InternalName != "" {
+		if existing, exists := c.internalStructs[sig.InternalName]; exists && existing.PackageID != sig.PackageID {
+			return fmt.Errorf("duplicate struct '%s'", name)
+		}
+		c.internalStructs[sig.InternalName] = sig
+	}
+	if sig.PackageID == "" {
+		if _, exists := c.structs[name]; exists {
+			return fmt.Errorf("duplicate struct '%s'", name)
+		}
+		c.structs[name] = sig
+		return nil
+	}
+	byPkg := c.packageStructs[sig.PackageID]
+	if byPkg == nil {
+		byPkg = map[string]StructSig{}
+		c.packageStructs[sig.PackageID] = byPkg
+	}
+	if _, exists := byPkg[name]; exists {
+		return fmt.Errorf("duplicate struct '%s'", name)
+	}
+	byPkg[name] = sig
+	return nil
+}
+
+func (c *Checker) registerInterface(name string, sig InterfaceSig) error {
+	if sig.InternalName != "" {
+		if existing, exists := c.internalInterfaces[sig.InternalName]; exists && existing.PackageID != sig.PackageID {
+			return fmt.Errorf("duplicate interface '%s'", name)
+		}
+		c.internalInterfaces[sig.InternalName] = sig
+	}
+	if sig.PackageID == "" {
+		if _, exists := c.interfaces[name]; exists {
+			return fmt.Errorf("duplicate interface '%s'", name)
+		}
+		c.interfaces[name] = sig
+		return nil
+	}
+	byPkg := c.packageInterfaces[sig.PackageID]
+	if byPkg == nil {
+		byPkg = map[string]InterfaceSig{}
+		c.packageInterfaces[sig.PackageID] = byPkg
+	}
+	if _, exists := byPkg[name]; exists {
+		return fmt.Errorf("duplicate interface '%s'", name)
+	}
+	byPkg[name] = sig
+	return nil
+}
+
+func (c *Checker) registerEnum(name string, sig EnumSig) error {
+	if sig.InternalName != "" {
+		if existing, exists := c.internalEnums[sig.InternalName]; exists && existing.PackageID != sig.PackageID {
+			return fmt.Errorf("duplicate enum '%s'", name)
+		}
+		c.internalEnums[sig.InternalName] = sig
+	}
+	if sig.PackageID == "" {
+		if _, exists := c.enums[name]; exists {
+			return fmt.Errorf("duplicate enum '%s'", name)
+		}
+		c.enums[name] = sig
+		return nil
+	}
+	byPkg := c.packageEnums[sig.PackageID]
+	if byPkg == nil {
+		byPkg = map[string]EnumSig{}
+		c.packageEnums[sig.PackageID] = byPkg
+	}
+	if _, exists := byPkg[name]; exists {
+		return fmt.Errorf("duplicate enum '%s'", name)
+	}
+	byPkg[name] = sig
+	return nil
+}
+
+func (c *Checker) resolveStruct(name string) (StructSig, typeLookupStatus) {
+	if sig, ok := c.internalStructs[name]; ok {
+		return sig, typeLookupFound
+	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageStructs[c.currentPackage]; byPkg != nil {
+			if sig, ok := byPkg[name]; ok {
+				return sig, typeLookupFound
+			}
+		}
+	}
+	if sig, ok := c.structs[name]; ok && sig.PackageID == "" {
+		return sig, typeLookupFound
+	}
+	return c.resolveVisibleImportedStruct(name)
+}
+
+func (c *Checker) resolveVisibleImportedStruct(name string) (StructSig, typeLookupStatus) {
+	found := StructSig{}
+	count := 0
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageStructs[pkgID]
+		sig, ok := byPkg[name]
+		if !ok || !c.canAccessPackage(sig.PackageID, sig.Public) {
+			continue
+		}
+		found = sig
+		count++
+		if count > 1 {
+			return StructSig{}, typeLookupAmbiguous
+		}
+	}
+	if count == 1 {
+		return found, typeLookupFound
+	}
+	return StructSig{}, typeLookupMissing
+}
+
+func (c *Checker) resolveInterface(name string) (InterfaceSig, typeLookupStatus) {
+	if sig, ok := c.internalInterfaces[name]; ok {
+		return sig, typeLookupFound
+	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageInterfaces[c.currentPackage]; byPkg != nil {
+			if sig, ok := byPkg[name]; ok {
+				return sig, typeLookupFound
+			}
+		}
+	}
+	if sig, ok := c.interfaces[name]; ok && sig.PackageID == "" {
+		return sig, typeLookupFound
+	}
+	return c.resolveVisibleImportedInterface(name)
+}
+
+func (c *Checker) resolveVisibleImportedInterface(name string) (InterfaceSig, typeLookupStatus) {
+	found := InterfaceSig{}
+	count := 0
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageInterfaces[pkgID]
+		sig, ok := byPkg[name]
+		if !ok || !c.canAccessPackage(sig.PackageID, sig.Public) {
+			continue
+		}
+		found = sig
+		count++
+		if count > 1 {
+			return InterfaceSig{}, typeLookupAmbiguous
+		}
+	}
+	if count == 1 {
+		return found, typeLookupFound
+	}
+	return InterfaceSig{}, typeLookupMissing
+}
+
+func (c *Checker) resolveEnum(name string) (EnumSig, typeLookupStatus) {
+	if sig, ok := c.internalEnums[name]; ok {
+		return sig, typeLookupFound
+	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageEnums[c.currentPackage]; byPkg != nil {
+			if sig, ok := byPkg[name]; ok {
+				return sig, typeLookupFound
+			}
+		}
+	}
+	if sig, ok := c.enums[name]; ok && sig.PackageID == "" {
+		return sig, typeLookupFound
+	}
+	return c.resolveVisibleImportedEnum(name)
+}
+
+func (c *Checker) resolveVisibleImportedEnum(name string) (EnumSig, typeLookupStatus) {
+	found := EnumSig{}
+	count := 0
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageEnums[pkgID]
+		sig, ok := byPkg[name]
+		if !ok || !c.canAccessPackage(sig.PackageID, sig.Public) {
+			continue
+		}
+		found = sig
+		count++
+		if count > 1 {
+			return EnumSig{}, typeLookupAmbiguous
+		}
+	}
+	if count == 1 {
+		return found, typeLookupFound
+	}
+	return EnumSig{}, typeLookupMissing
+}
+
+func (c *Checker) resolveFunction(name string) (FuncSig, typeLookupStatus) {
+	if c.currentPackage != "" {
+		if byPkg := c.packageFunctions[c.currentPackage]; byPkg != nil {
+			if sig, ok := byPkg[name]; ok {
+				return sig, typeLookupFound
+			}
+		}
+	}
+	if sig, ok := c.functions[name]; ok && sig.PackageID == "" {
+		return sig, typeLookupFound
+	}
+	return c.resolveVisibleImportedFunction(name)
+}
+
+func (c *Checker) resolveVisibleImportedFunction(name string) (FuncSig, typeLookupStatus) {
+	found := FuncSig{}
+	count := 0
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageFunctions[pkgID]
+		sig, ok := byPkg[name]
+		if !ok || !c.canAccessPackage(sig.PackageID, sig.Public) {
+			continue
+		}
+		found = sig
+		count++
+		if count > 1 {
+			return FuncSig{}, typeLookupAmbiguous
+		}
+	}
+	if count == 1 {
+		return found, typeLookupFound
+	}
+	return FuncSig{}, typeLookupMissing
+}
+
+func (c *Checker) resolveHiddenFunction(name string) (FuncSig, bool) {
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageFunctions[pkgID]
+		sig, ok := byPkg[name]
+		if !ok {
+			continue
+		}
+		if c.canAccessPackage(sig.PackageID, sig.Public) {
+			continue
+		}
+		return sig, true
+	}
+	return FuncSig{}, false
+}
+
+func (c *Checker) resolveGlobalSymbol(name string) (GlobalSymbol, typeLookupStatus) {
+	if c.currentPackage != "" {
+		if byPkg := c.packageGlobals[c.currentPackage]; byPkg != nil {
+			if g, ok := byPkg[name]; ok {
+				return g, typeLookupFound
+			}
+		}
+	}
+	if g, ok := c.globals[name]; ok && g.PackageID == "" {
+		return g, typeLookupFound
+	}
+	return c.resolveVisibleImportedGlobal(name)
+}
+
+func (c *Checker) resolveVisibleImportedGlobal(name string) (GlobalSymbol, typeLookupStatus) {
+	found := GlobalSymbol{}
+	count := 0
+	for _, pkgID := range c.currentBareImportPackageIDs() {
+		byPkg := c.packageGlobals[pkgID]
+		g, ok := byPkg[name]
+		if !ok || !c.canAccessPackage(g.PackageID, g.Public) {
+			continue
+		}
+		found = g
+		count++
+		if count > 1 {
+			return GlobalSymbol{}, typeLookupAmbiguous
+		}
+	}
+	if count == 1 {
+		return found, typeLookupFound
+	}
+	return GlobalSymbol{}, typeLookupMissing
+}
+
+func (c *Checker) registerFunction(name string, sig FuncSig) error {
+	if sig.PackageID == "" {
+		if _, exists := c.functions[name]; exists {
+			return fmt.Errorf("duplicate function '%s'", name)
+		}
+		c.functions[name] = sig
+		return nil
+	}
+	byPkg := c.packageFunctions[sig.PackageID]
+	if byPkg == nil {
+		byPkg = map[string]FuncSig{}
+		c.packageFunctions[sig.PackageID] = byPkg
+	}
+	if _, exists := byPkg[name]; exists {
+		return fmt.Errorf("duplicate function '%s'", name)
+	}
+	byPkg[name] = sig
+	return nil
+}
+
+func (c *Checker) registerGlobal(name string, g GlobalSymbol) error {
+	if g.PackageID == "" {
+		if _, exists := c.globals[name]; exists {
+			return fmt.Errorf("duplicate global '%s'", name)
+		}
+		c.globals[name] = g
+		return nil
+	}
+	byPkg := c.packageGlobals[g.PackageID]
+	if byPkg == nil {
+		byPkg = map[string]GlobalSymbol{}
+		c.packageGlobals[g.PackageID] = byPkg
+	}
+	if _, exists := byPkg[name]; exists {
+		return fmt.Errorf("duplicate global '%s'", name)
+	}
+	byPkg[name] = g
+	return nil
+}
+
+func (c *Checker) resolveQualifiedGlobal(alias, name string) (ast.Type, bool, bool) {
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok {
+		return ast.TypeInvalid, false, false
+	}
+	byPkg := c.packageGlobals[targetPkg]
+	if byPkg == nil {
+		return ast.TypeInvalid, false, false
+	}
+	g, ok := byPkg[name]
+	if !ok || g.PackageID != targetPkg || !g.Public {
+		return ast.TypeInvalid, false, false
+	}
+	return g.Type, g.Const, true
+}
+
+func (c *Checker) resolveQualifiedFunction(alias, name string) (FuncSig, bool) {
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok {
+		return FuncSig{}, false
+	}
+	byPkg := c.packageFunctions[targetPkg]
+	if byPkg == nil {
+		return FuncSig{}, false
+	}
+	sig, ok := byPkg[name]
+	if !ok || sig.PackageID != targetPkg || !sig.Public {
+		return FuncSig{}, false
+	}
+	return sig, true
+}
+
+func (c *Checker) resolveQualifiedStruct(alias, name string) (StructSig, bool) {
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok {
+		return StructSig{}, false
+	}
+	byPkg := c.packageStructs[targetPkg]
+	if byPkg == nil {
+		return StructSig{}, false
+	}
+	sig, ok := byPkg[name]
+	if !ok || sig.PackageID != targetPkg || !sig.Public {
+		return StructSig{}, false
+	}
+	return sig, true
+}
+
+func (c *Checker) resolveQualifiedInterface(alias, name string) (InterfaceSig, bool) {
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok {
+		return InterfaceSig{}, false
+	}
+	byPkg := c.packageInterfaces[targetPkg]
+	if byPkg == nil {
+		return InterfaceSig{}, false
+	}
+	sig, ok := byPkg[name]
+	if !ok || sig.PackageID != targetPkg || !sig.Public {
+		return InterfaceSig{}, false
+	}
+	return sig, true
+}
+
+func (c *Checker) resolveQualifiedEnum(alias, name string) (EnumSig, bool) {
+	targetPkg, ok := c.resolveImportedPackage(alias)
+	if !ok {
+		return EnumSig{}, false
+	}
+	byPkg := c.packageEnums[targetPkg]
+	if byPkg == nil {
+		return EnumSig{}, false
+	}
+	sig, ok := byPkg[name]
+	if !ok || sig.PackageID != targetPkg || !sig.Public {
+		return EnumSig{}, false
+	}
+	return sig, true
 }
 
 func (c *Checker) suggestMethodName(base, name string) string {
@@ -1145,15 +1912,76 @@ func (c *Checker) suggestMethodName(base, name string) string {
 			candidates = append(candidates, strings.TrimPrefix(fn, prefix))
 		}
 	}
+	if c.currentPackage != "" {
+		if byPkg := c.packageFunctions[c.currentPackage]; byPkg != nil {
+			for fn := range byPkg {
+				if strings.HasPrefix(fn, prefix) {
+					candidates = append(candidates, strings.TrimPrefix(fn, prefix))
+				}
+			}
+		}
+		for _, pkgID := range c.currentBareImportPackageIDs() {
+			if byPkg := c.packageFunctions[pkgID]; byPkg != nil {
+				for fn, sig := range byPkg {
+					if sig.Public && strings.HasPrefix(fn, prefix) {
+						candidates = append(candidates, strings.TrimPrefix(fn, prefix))
+					}
+				}
+			}
+		}
+	}
 	return suggestNameSuffix(name, candidates)
 }
 
+func (c *Checker) isEnumVariantLiteral(name string, g GlobalSymbol) bool {
+	if g.Type == ast.TypeInvalid {
+		return false
+	}
+	sig, status := c.resolveEnum(string(g.Type))
+	if status != typeLookupFound {
+		return false
+	}
+	return sig.Variants[name]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func suggestNameSuffix(target string, candidates []string) string {
+	for _, candidate := range candidates {
+		if strings.HasSuffix(candidate, "."+target) {
+			return fmt.Sprintf(" (did you mean '%s'?)", candidate)
+		}
+	}
 	best, ok := closestName(target, candidates)
 	if !ok {
 		return ""
 	}
 	return fmt.Sprintf(" (did you mean '%s'?)", best)
+}
+
+func isUsableQualifiedAlias(alias string) bool {
+	if alias == "" {
+		return false
+	}
+	parts := strings.Split(alias, ".")
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for i, r := range part {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '_' && (i == 0 || r < '0' || r > '9') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func closestName(target string, candidates []string) (string, bool) {
@@ -1228,17 +2056,24 @@ func mapKeys[T any](m map[string]T) []string {
 	return out
 }
 
-func (c *Checker) declare(name string, t ast.Type, isConst bool) error {
-	scope := c.scopes[len(c.scopes)-1]
-	if name == "_" {
-		// Allow explicit discard bindings repeatedly.
-		scope[name+fmt.Sprintf("#%d", len(scope))] = &varInfo{typ: t, used: true, isConst: false}
+func firstArgNode(args []ast.Expr) ast.Node {
+	if len(args) == 0 {
 		return nil
 	}
-	if _, exists := scope[name]; exists {
-		return fmt.Errorf("type error: duplicate variable '%s'", name)
+	return args[0]
+}
+
+func guardOrVariantNode(guard ast.Expr) ast.Node {
+	if guard == nil {
+		return nil
 	}
-	scope[name] = &varInfo{typ: t, used: false, isConst: isConst}
+	return guard
+}
+
+func (c *Checker) declare(name string, t ast.Type, isConst bool, span source.Span) error {
+	if err := c.scopes.declare(name, t, isConst, span); err != nil {
+		return c.diagAt(span, "%s", err.Error())
+	}
 	return nil
 }
 
@@ -1248,31 +2083,27 @@ func (c *Checker) resolve(name string, markUsed bool) (ast.Type, bool) {
 }
 
 func (c *Checker) resolveVar(name string, markUsed bool) (ast.Type, bool, bool) {
-	for i := len(c.scopes) - 1; i >= 0; i-- {
-		if v, ok := c.scopes[i][name]; ok {
-			if markUsed {
-				v.used = true
-			}
-			return v.typ, v.isConst, true
-		}
+	if t, isConst, ok := c.scopes.resolve(name, markUsed); ok {
+		return t, isConst, true
 	}
-	if t, ok := c.globals[name]; ok {
-		return t, c.globalsConst[name], true
+	if g, status := c.resolveGlobalSymbol(name); status == typeLookupFound {
+		return g.Type, g.Const, true
 	}
 	return ast.TypeInvalid, false, false
 }
 
-func (c *Checker) pushScope() { c.scopes = append(c.scopes, map[string]*varInfo{}) }
+func (c *Checker) pushScope() { c.scopes.push() }
 
 func (c *Checker) popScope() error {
-	scope := c.scopes[len(c.scopes)-1]
-	c.scopes = c.scopes[:len(c.scopes)-1]
-	for name, info := range scope {
-		if strings.HasPrefix(name, "_#") {
-			continue
-		}
-		if !info.used {
-			return fmt.Errorf("type error: unused variable '%s' (use '_' to ignore)", name)
+	scope := c.scopes.pop()
+	if scope == nil {
+		return nil
+	}
+	if err := c.scopes.validateScopeUsage(scope); err != nil {
+		for _, info := range scope {
+			if !info.used {
+				return c.diagAt(info.declSpan, "%s", err.Error())
+			}
 		}
 	}
 	return nil

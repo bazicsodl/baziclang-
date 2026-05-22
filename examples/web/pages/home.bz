@@ -1,7 +1,7 @@
 import "std"
 
 
-fn page_home(clicks: int, name: string): string {
+fn page_home(_: int, name: string): string {
     let greet = "Welcome to Bazic UI."
     if (name != "") {
         greet = (("Welcome, " + name) + ".")
