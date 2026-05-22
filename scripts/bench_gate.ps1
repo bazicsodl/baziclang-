@@ -20,7 +20,7 @@ $benchDir = Join-Path $rootDir "bench"
 function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
     for ($i = 0; $i -lt $iters; $i++) {
-        $output = & go run ./cmd/bazc run $path --backend $backend 2>$null
+        $output = & go run ./cmd/bazc run --backend $backend $path 2>$null
         if ($LASTEXITCODE -ne 0) {
             continue
         }

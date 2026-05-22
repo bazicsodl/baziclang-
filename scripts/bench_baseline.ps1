@@ -21,7 +21,13 @@ $benchFiles = @(
     @{ Name = "jwt_sign_verify"; Path = (Join-Path "bench" "jwt_sign_verify.bz") }
 )
 
-$bazcName = if ($IsWindows) { "bazc-bench.exe" } else { "bazc-bench" }
+$isWindowsHost = $false
+if ($null -ne $IsWindows) {
+    $isWindowsHost = [bool]$IsWindows
+} elseif ($env:OS) {
+    $isWindowsHost = $env:OS.ToLowerInvariant().Contains("windows")
+}
+$bazcName = if ($isWindowsHost) { "bazc-bench.exe" } else { "bazc-bench" }
 $bazcBin = Join-Path ([System.IO.Path]::GetTempPath()) $bazcName
 $buildOutput = & go build -buildvcs=false -o $bazcBin ./cmd/bazc 2>&1
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bazcBin)) {
@@ -40,7 +46,7 @@ function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
     $lastFailure = $null
     for ($i = 0; $i -lt $iters; $i++) {
-        $output = & $bazcBin run $path --backend $backend 2>&1
+        $output = & $bazcBin run --backend $backend $path 2>&1
         $exitCode = $LASTEXITCODE
         $timeMs = $null
         if ($exitCode -eq 0) {

@@ -42,11 +42,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libcurl4-openssl-dev
 
-      - name: Unit Tests
-        run: go test ./...
-
       - name: Sync Packages
         run: go run ./cmd/bazc pkg sync
+
+      - name: Unit Tests
+        run: go test ./...
 
       - name: Verify Package Integrity
         run: go run ./cmd/bazc pkg verify
@@ -212,11 +212,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Unit Tests
-        run: go test ./...
-
       - name: Sync Packages
         run: go run ./cmd/bazc pkg sync
+
+      - name: Unit Tests
+        run: go test ./...
 
       - name: Verify Package Integrity
         run: go run ./cmd/bazc pkg verify
