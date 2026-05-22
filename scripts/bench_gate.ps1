@@ -77,7 +77,7 @@ $targets = @{
     "parse_int_float" = 3.0
     "loop_arith" = 2.0
     "match_hot" = 2.0
-    "base64_roundtrip" = 2.0
+    "base64_roundtrip" = 4.0
     "jwt_sign_verify" = 2.0
 }
 

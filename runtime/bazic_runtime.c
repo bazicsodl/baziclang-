@@ -50,6 +50,8 @@
 #endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+extern time_t timegm(struct tm *);
+extern void arc4random_buf(void *buf, size_t nbytes);
 #endif
 
 typedef struct {
