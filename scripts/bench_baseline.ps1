@@ -23,9 +23,13 @@ $benchFiles = @(
 
 $bazcName = if ($IsWindows) { "bazc-bench.exe" } else { "bazc-bench" }
 $bazcBin = Join-Path ([System.IO.Path]::GetTempPath()) $bazcName
-& go build -buildvcs=false -o $bazcBin ./cmd/bazc 2>$null
+$buildOutput = & go build -buildvcs=false -o $bazcBin ./cmd/bazc 2>&1
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bazcBin)) {
-    throw "failed to build bench capture compiler binary"
+    $rendered = (($buildOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+    if (-not $rendered) {
+        $rendered = "no output"
+    }
+    throw ("failed to build bench capture compiler binary: {0}" -f $rendered)
 }
 & $bazcBin pkg sync 2>$null
 if ($LASTEXITCODE -ne 0) {

@@ -204,7 +204,7 @@ func buildLLVM(opts BuildOptions) error {
 	if err != nil {
 		return err
 	}
-	args := []string{"-O2", "-std=c11", "-o", opts.Out}
+	args := []string{"-O2", "-std=c11", "-Wno-override-module", "-o", opts.Out}
 	if v := strings.TrimSpace(os.Getenv("BAZIC_CLANG_FLAGS")); v != "" {
 		args = append(args, strings.Fields(v)...)
 	}
