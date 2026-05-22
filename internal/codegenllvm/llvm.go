@@ -315,7 +315,7 @@ var llvmRuntimePreludeRenderers = []llvmRuntimePreludeRenderer{
 		return emitRouteTable(p.shape.Runtime.Routes.Handlers, p.strs)
 	}},
 	{section: intrinsics.LLVMRuntimePreludeStringRuntime, render: func(p llvmRuntimePreludePlan) string {
-		return emitStringRuntime()
+		return emitStringRuntime(p.strs)
 	}},
 	{section: intrinsics.LLVMRuntimePreludeBuiltin, render: func(p llvmRuntimePreludePlan) string {
 		return emitBuiltinRuntime(p.shape.RuntimeShape.LLVMRuntimeSurface.BuiltinSections, p.structs, p.ifaces, p.strs)
@@ -333,14 +333,14 @@ var llvmBuiltinRuntimeRenderers = []llvmBuiltinRuntimeRenderer{
 	{section: intrinsics.LLVMBuiltinRuntimeStartsWith, render: func(structs structPool, strs stringPool) string { return emitStartsWith() }},
 	{section: intrinsics.LLVMBuiltinRuntimeEndsWith, render: func(structs structPool, strs stringPool) string { return emitEndsWith() }},
 	{section: intrinsics.LLVMBuiltinRuntimeToUpper, render: func(structs structPool, strs stringPool) string {
-		return emitCaseTransform(intrinsics.LLVMRuntimeToUpperFunc, "toupper")
+		return emitCaseTransform(intrinsics.LLVMRuntimeToUpperFunc, "toupper", strs)
 	}},
 	{section: intrinsics.LLVMBuiltinRuntimeToLower, render: func(structs structPool, strs stringPool) string {
-		return emitCaseTransform(intrinsics.LLVMRuntimeToLowerFunc, "tolower")
+		return emitCaseTransform(intrinsics.LLVMRuntimeToLowerFunc, "tolower", strs)
 	}},
 	{section: intrinsics.LLVMBuiltinRuntimeTrimSpace, render: func(structs structPool, strs stringPool) string { return emitTrimSpace(strs) }},
 	{section: intrinsics.LLVMBuiltinRuntimeRepeat, render: func(structs structPool, strs stringPool) string { return emitRepeat(strs) }},
-	{section: intrinsics.LLVMBuiltinRuntimeReplace, render: func(structs structPool, strs stringPool) string { return emitReplace() }},
+	{section: intrinsics.LLVMBuiltinRuntimeReplace, render: func(structs structPool, strs stringPool) string { return emitReplace(strs) }},
 	{section: intrinsics.LLVMBuiltinRuntimeIntToStr, render: func(structs structPool, strs stringPool) string { return emitIntToStr(strs) }},
 	{section: intrinsics.LLVMBuiltinRuntimeFloatToStr, render: func(structs structPool, strs stringPool) string { return emitFloatToStr(strs) }},
 	{section: intrinsics.LLVMBuiltinRuntimeParseInt, render: func(structs structPool, strs stringPool) string { return emitParseInt(structs, strs) }},
@@ -1152,8 +1152,9 @@ func emitRouteTable(handlers []intrinsics.HTTPHandlerSpec, strs stringPool) stri
 	return b.String()
 }
 
-func emitStringRuntime() string {
+func emitStringRuntime(strs stringPool) string {
 	var b strings.Builder
+	emptyName, emptyLen := stringGlobalRef(strs, "")
 	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeStrConcatFunc + "(ptr %a, ptr %b) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %lenA = call i64 @strlen(ptr %a)\n")
@@ -1163,6 +1164,9 @@ func emitStringRuntime() string {
 	b.WriteString("dup_b:\n")
 	b.WriteString("  %dupBTotal = add i64 %lenB, 1\n")
 	b.WriteString("  %dupB = call ptr @malloc(i64 %dupBTotal)\n")
+	b.WriteString("  %dupBNull = icmp eq ptr %dupB, null\n")
+	b.WriteString("  br i1 %dupBNull, label %oom, label %dup_b_copy\n")
+	b.WriteString("dup_b_copy:\n")
 	b.WriteString("  call ptr @memcpy(ptr %dupB, ptr %b, i64 %lenB)\n")
 	b.WriteString("  %dupBEnd = getelementptr i8, ptr %dupB, i64 %lenB\n")
 	b.WriteString("  store i8 0, ptr %dupBEnd\n")
@@ -1173,6 +1177,9 @@ func emitStringRuntime() string {
 	b.WriteString("dup_a:\n")
 	b.WriteString("  %dupATotal = add i64 %lenA, 1\n")
 	b.WriteString("  %dupA = call ptr @malloc(i64 %dupATotal)\n")
+	b.WriteString("  %dupANull = icmp eq ptr %dupA, null\n")
+	b.WriteString("  br i1 %dupANull, label %oom, label %dup_a_copy\n")
+	b.WriteString("dup_a_copy:\n")
 	b.WriteString("  call ptr @memcpy(ptr %dupA, ptr %a, i64 %lenA)\n")
 	b.WriteString("  %dupAEnd = getelementptr i8, ptr %dupA, i64 %lenA\n")
 	b.WriteString("  store i8 0, ptr %dupAEnd\n")
@@ -1181,12 +1188,18 @@ func emitStringRuntime() string {
 	b.WriteString("  %sum = add i64 %lenA, %lenB\n")
 	b.WriteString("  %total = add i64 %sum, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %oom, label %cont_copy\n")
+	b.WriteString("cont_copy:\n")
 	b.WriteString("  call ptr @memcpy(ptr %buf, ptr %a, i64 %lenA)\n")
 	b.WriteString("  %dstB = getelementptr i8, ptr %buf, i64 %lenA\n")
 	b.WriteString("  call ptr @memcpy(ptr %dstB, ptr %b, i64 %lenB)\n")
 	b.WriteString("  %end = getelementptr i8, ptr %buf, i64 %sum\n")
 	b.WriteString("  store i8 0, ptr %end\n")
 	b.WriteString("  ret ptr %buf\n")
+	b.WriteString("oom:\n")
+	b.WriteString(fmt.Sprintf("  %%empty = %s\n", stringGEP(emptyName, emptyLen)))
+	b.WriteString("  ret ptr %empty\n")
 	b.WriteString("}\n\n")
 	b.WriteString("define i32 @" + intrinsics.LLVMRuntimeStrCmpFunc + "(ptr %a, ptr %b) {\n")
 	b.WriteString("entry:\n")
@@ -1269,14 +1282,16 @@ func emitStdDecls(typeAliases map[string]ast.Type, structs structPool) string {
 	})
 }
 
-func emitCaseTransform(name string, fn string) string {
+func emitCaseTransform(name string, fn string, strs stringPool) string {
 	var b strings.Builder
+	emptyName, emptyLen := stringGlobalRef(strs, "")
 	b.WriteString(fmt.Sprintf("define ptr @%s(ptr %%s) {\n", name))
 	b.WriteString("entry:\n")
 	b.WriteString("  %len = call i64 @strlen(ptr %s)\n")
 	b.WriteString("  %total = add i64 %len, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
-	b.WriteString("  br label %loop\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %oom, label %loop\n")
 	b.WriteString("loop:\n")
 	b.WriteString("  %i = phi i64 [ 0, %entry ], [ %next, %body ]\n")
 	b.WriteString("  %done = icmp eq i64 %i, %len\n")
@@ -1295,6 +1310,9 @@ func emitCaseTransform(name string, fn string) string {
 	b.WriteString("  %endPtr = getelementptr i8, ptr %buf, i64 %len\n")
 	b.WriteString("  store i8 0, ptr %endPtr\n")
 	b.WriteString("  ret ptr %buf\n")
+	b.WriteString("oom:\n")
+	b.WriteString(fmt.Sprintf("  %%empty = %s\n", stringGEP(emptyName, emptyLen)))
+	b.WriteString("  ret ptr %empty\n")
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -1350,6 +1368,9 @@ func emitTrimSpace(strs stringPool) string {
 	b.WriteString("  %newLen2 = add i64 %newLen, 1\n")
 	b.WriteString("  %total = add i64 %newLen2, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %allspace, label %copy\n")
+	b.WriteString("copy:\n")
 	b.WriteString("  %src = getelementptr i8, ptr %s, i64 %startVal\n")
 	b.WriteString("  call ptr @memcpy(ptr %buf, ptr %src, i64 %newLen2)\n")
 	b.WriteString("  %endPtr = getelementptr i8, ptr %buf, i64 %newLen2\n")
@@ -1385,7 +1406,8 @@ func emitRepeat(strs stringPool) string {
 	b.WriteString("  %total = mul i64 %len, %count\n")
 	b.WriteString("  %alloc = add i64 %total, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %alloc)\n")
-	b.WriteString("  br label %loop\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %repeat_empty, label %loop\n")
 	b.WriteString("loop:\n")
 	b.WriteString("  %i = phi i64 [ 0, %cont_work ], [ %next, %body ]\n")
 	b.WriteString("  %done = icmp eq i64 %i, %count\n")
@@ -1404,8 +1426,9 @@ func emitRepeat(strs stringPool) string {
 	return b.String()
 }
 
-func emitReplace() string {
+func emitReplace(strs stringPool) string {
 	var b strings.Builder
+	emptyName, emptyLen := stringGlobalRef(strs, "")
 	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeReplaceFunc + "(ptr %s, ptr %old, ptr %new) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %oldLen = call i64 @strlen(ptr %old)\n")
@@ -1443,6 +1466,9 @@ func emitReplace() string {
 	b.WriteString("  %newLen = add i64 %lenS, %extra\n")
 	b.WriteString("  %total = add i64 %newLen, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %oom, label %alloc_ok\n")
+	b.WriteString("alloc_ok:\n")
 	b.WriteString("  %src = alloca ptr\n")
 	b.WriteString("  %dst = alloca ptr\n")
 	b.WriteString("  store ptr %s, ptr %src\n")
@@ -1474,12 +1500,16 @@ func emitReplace() string {
 	b.WriteString("  %end = getelementptr i8, ptr %dstv2, i64 %tailLen\n")
 	b.WriteString("  store i8 0, ptr %end\n")
 	b.WriteString("  ret ptr %buf\n")
+	b.WriteString("oom:\n")
+	b.WriteString(fmt.Sprintf("  %%empty = %s\n", stringGEP(emptyName, emptyLen)))
+	b.WriteString("  ret ptr %empty\n")
 	b.WriteString("}\n")
 	return b.String()
 }
 
 func emitIntToStr(strs stringPool) string {
 	var b strings.Builder
+	emptyName, emptyLen := stringGlobalRef(strs, "")
 	fmtName, fmtLen := stringGlobalRef(strs, "%ld")
 	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeIntToStrFunc + "(i64 %v) {\n")
 	b.WriteString("entry:\n")
@@ -1488,14 +1518,21 @@ func emitIntToStr(strs stringPool) string {
 	b.WriteString("  %len = sext i32 %len32 to i64\n")
 	b.WriteString("  %total = add i64 %len, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %oom, label %format\n")
+	b.WriteString("format:\n")
 	b.WriteString("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 %total, ptr %fmt, i64 %v)\n")
 	b.WriteString("  ret ptr %buf\n")
+	b.WriteString("oom:\n")
+	b.WriteString(fmt.Sprintf("  %%empty = %s\n", stringGEP(emptyName, emptyLen)))
+	b.WriteString("  ret ptr %empty\n")
 	b.WriteString("}\n")
 	return b.String()
 }
 
 func emitFloatToStr(strs stringPool) string {
 	var b strings.Builder
+	emptyName, emptyLen := stringGlobalRef(strs, "")
 	fmtName, fmtLen := stringGlobalRef(strs, "%g")
 	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeFloatToStrFunc + "(double %v) {\n")
 	b.WriteString("entry:\n")
@@ -1504,8 +1541,14 @@ func emitFloatToStr(strs stringPool) string {
 	b.WriteString("  %len = sext i32 %len32 to i64\n")
 	b.WriteString("  %total = add i64 %len, 1\n")
 	b.WriteString("  %buf = call ptr @malloc(i64 %total)\n")
+	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
+	b.WriteString("  br i1 %bufNull, label %oom, label %format\n")
+	b.WriteString("format:\n")
 	b.WriteString("  call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buf, i64 %total, ptr %fmt, double %v)\n")
 	b.WriteString("  ret ptr %buf\n")
+	b.WriteString("oom:\n")
+	b.WriteString(fmt.Sprintf("  %%empty = %s\n", stringGEP(emptyName, emptyLen)))
+	b.WriteString("  ret ptr %empty\n")
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -2244,7 +2287,11 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			if !ok {
 				return "", "", ast.TypeInvalid, false
 			}
-			return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, argVal), "", ast.TypeVoid, true
+			nonnullCode, nonnullPtr, ok := nonNullStringPtr(ctx, argVal)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			return argCode + fmtCode + nonnullCode + fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, nonnullPtr), "", ast.TypeVoid, true
 		case argType == ast.TypeAny:
 			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
 			if !ok {
@@ -2253,7 +2300,12 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			tmp := ctx.ir.nextTmp()
 			code := argCode + fmtCode
 			code += fmt.Sprintf("  %s = call ptr @%s(%%Any %s)\n", tmp, intrinsics.LLVMRuntimeAnyToStrFunc, argVal)
-			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
+			nonnullCode, nonnullPtr, ok := nonNullStringPtr(ctx, tmp)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			code += nonnullCode
+			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, nonnullPtr)
 			return code, "", ast.TypeVoid, true
 		default:
 			return "", "", ast.TypeInvalid, false
@@ -2496,8 +2548,17 @@ func (p llvmStoreEmitPlan) emitInto(b *strings.Builder) bool {
 }
 
 func emitCFGInstrMIRLLVM(b *strings.Builder, ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) bool {
-	if mir.IsValueStmt(s) {
-		return emitValueStmtMIRLLVM(b, ctx, s, funcs)
+	if name, ok := mir.ValueStmtBindingName(s); ok && name == "_" {
+		if expr, ok := mir.ValueStmtExpr(s); ok {
+			code, _, _, ok := emitExprMIRLLVM(ctx, expr, funcs)
+			if ok {
+				b.WriteString(code)
+				return true
+			}
+		}
+	}
+	if emitValueStmtMIRLLVM(b, ctx, s, funcs) {
+		return true
 	}
 	plan, ok := buildLLVMCFGInstrEmitPlan(ctx, s, funcs)
 	if !ok {
@@ -3132,6 +3193,19 @@ func boolToI8(ctx *funcCtx, val string) (string, string) {
 
 func stringPtr(ctx *funcCtx, value string) (string, string, bool) {
 	return llvmStringPtrPlan{ctx: ctx, value: value}.emit()
+}
+
+func nonNullStringPtr(ctx *funcCtx, value string) (string, string, bool) {
+	emptyCode, emptyPtr, ok := stringPtr(ctx, "")
+	if !ok {
+		return "", value, true
+	}
+	isNull := ctx.ir.nextTmp()
+	tmp := ctx.ir.nextTmp()
+	code := emptyCode
+	code += fmt.Sprintf("  %s = icmp eq ptr %s, null\n", isNull, value)
+	code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, isNull, emptyPtr, value)
+	return code, tmp, true
 }
 
 func (p llvmBoolConvertPlan) emit() (string, string) {
