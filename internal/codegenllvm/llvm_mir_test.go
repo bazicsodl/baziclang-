@@ -83,6 +83,28 @@ fn main(): void {
 	}
 }
 
+func TestGenerateLLVMIREmitsHostTargetHeaderWhenKnown(t *testing.T) {
+	src := `fn main(): void {}`
+	prog := parseAndCheckLLVM(t, src)
+	out, err := GenerateLLVMIR(prog)
+	if err != nil {
+		t.Fatalf("generate llvm failed: %v", err)
+	}
+	target, ok := llvmHostModuleTarget()
+	if !ok {
+		if strings.Contains(out, "target triple = ") || strings.Contains(out, "target datalayout = ") {
+			t.Fatalf("did not expect target header for unknown host target:\n%s", out)
+		}
+		return
+	}
+	if !strings.Contains(out, `target datalayout = "`+target.DataLayout+`"`) {
+		t.Fatalf("expected host target datalayout in generated llvm:\n%s", out)
+	}
+	if !strings.Contains(out, `target triple = "`+target.Triple+`"`) {
+		t.Fatalf("expected host target triple in generated llvm:\n%s", out)
+	}
+}
+
 func TestEmitValueStmtExprMIRLLVMUsesStructuredStmtForms(t *testing.T) {
 	ctx := newFuncCtx(
 		enumInfo{enumTypes: map[string]bool{"Role": true}, variantType: map[string]string{"Guest": "Role", "Admin": "Role"}, variantIndex: map[string]int{"Guest": 0, "Admin": 1}},

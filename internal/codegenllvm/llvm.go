@@ -2,6 +2,7 @@ package codegenllvm
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -294,6 +295,11 @@ type llvmBuiltinRuntimeRenderer struct {
 	render  func(structPool, stringPool) string
 }
 
+type llvmModuleTargetInfo struct {
+	DataLayout string
+	Triple     string
+}
+
 type llvmGlobalDeclItemPlan struct {
 	global globalInfo
 	abiEnv llvmABIEnv
@@ -440,6 +446,10 @@ func (p llvmDeclPreludePlan) render() (string, error) {
 	var b strings.Builder
 	b.WriteString("; Bazic LLVM IR (early backend)\n")
 	b.WriteString("source_filename = \"bazic_module\"\n\n")
+	if target, ok := llvmHostModuleTarget(); ok {
+		b.WriteString(fmt.Sprintf("target datalayout = %q\n", target.DataLayout))
+		b.WriteString(fmt.Sprintf("target triple = %q\n\n", target.Triple))
+	}
 	for _, decl := range shape.RuntimeShape.LLVMRuntimeSurface.PreludeDecls {
 		b.WriteString(decl)
 	}
@@ -770,6 +780,39 @@ func collectInterfaces(decls []backendmeta.InterfaceDecl) interfacePool {
 		pool.order = append(pool.order, name)
 	}
 	return pool
+}
+
+func llvmHostModuleTarget() (llvmModuleTargetInfo, bool) {
+	switch runtime.GOOS {
+	case "windows":
+		if runtime.GOARCH == "amd64" {
+			return llvmModuleTargetInfo{
+				DataLayout: "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+				Triple:     "x86_64-pc-windows-msvc19.33.0",
+			}, true
+		}
+	case "linux":
+		if runtime.GOARCH == "amd64" {
+			return llvmModuleTargetInfo{
+				DataLayout: "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+				Triple:     "x86_64-unknown-linux-gnu",
+			}, true
+		}
+	case "darwin":
+		switch runtime.GOARCH {
+		case "arm64":
+			return llvmModuleTargetInfo{
+				DataLayout: "e-m:o-i64:64-i128:128-n32:64-S128",
+				Triple:     "arm64-apple-macosx15.0.0",
+			}, true
+		case "amd64":
+			return llvmModuleTargetInfo{
+				DataLayout: "e-m:o-i64:64-f80:128-n8:16:32:64-S128",
+				Triple:     "x86_64-apple-macosx10.12.0",
+			}, true
+		}
+	}
+	return llvmModuleTargetInfo{}, false
 }
 
 func emitStructType(name string, info structInfo, enums enumInfo, structs structPool, ifaces interfacePool) (string, error) {
