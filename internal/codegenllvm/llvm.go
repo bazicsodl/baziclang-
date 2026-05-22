@@ -2,162 +2,472 @@ package codegenllvm
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
 	"baziclang/internal/ast"
+	"baziclang/internal/backendmeta"
+	"baziclang/internal/hir"
+	"baziclang/internal/intrinsics"
+	"baziclang/internal/mir"
+	baztypes "baziclang/internal/types"
 )
 
 const (
-	anyTagInt    = 1
-	anyTagFloat  = 2
-	anyTagBool   = 3
-	anyTagString = 4
-	anyTagOther  = 5
+	anyTagInt    = intrinsics.LLVMAnyTagInt
+	anyTagFloat  = intrinsics.LLVMAnyTagFloat
+	anyTagBool   = intrinsics.LLVMAnyTagBool
+	anyTagString = intrinsics.LLVMAnyTagString
+	anyTagOther  = intrinsics.LLVMAnyTagOther
 )
 
-type httpRouteSeg struct {
-	Literal string
-	Param   string
-	IsParam bool
+type llvmProgramPlan struct {
+	shape    backendmeta.ProgramShapeMeta
+	enums    enumInfo
+	structs  structPool
+	ifaces   interfacePool
+	globals  globalSet
+	funcSigs map[string]llvmFuncSig
+	strs     stringPool
 }
 
-type httpHandler struct {
-	Method   string
-	Segments []httpRouteSeg
-	FuncName string
+type llvmFunctionRenderer struct {
+	funcs   map[string]llvmFuncSig
+	globals map[string]globalSlot
+	enums   enumInfo
+	structs structPool
+	ifaces  interfacePool
+	strs    stringPool
 }
 
-func collectHttpHandlers(p *ast.Program) []httpHandler {
-	handlers := []httpHandler{}
-	for _, d := range p.Decls {
-		fn, ok := d.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-		if h, ok := parseHttpHandler(fn); ok {
-			handlers = append(handlers, h)
-		}
-	}
-	if len(handlers) > 1 {
-		sort.Slice(handlers, func(i, j int) bool {
-			if handlers[i].Method == handlers[j].Method {
-				return handlers[i].FuncName < handlers[j].FuncName
-			}
-			return handlers[i].Method < handlers[j].Method
-		})
-	}
-	return handlers
+type llvmMainRenderPlan struct {
+	fn         *mir.FuncDecl
+	hasGlobals bool
 }
 
-func parseHttpHandler(fn *ast.FuncDecl) (httpHandler, bool) {
-	if len(fn.Params) != 1 {
-		return httpHandler{}, false
-	}
-	if string(fn.Params[0].Type) != "ServerRequest" {
-		return httpHandler{}, false
-	}
-	if string(fn.ReturnType) != "ServerResponse" {
-		return httpHandler{}, false
-	}
-	parts := strings.Split(fn.Name, "_")
-	if len(parts) < 2 {
-		return httpHandler{}, false
-	}
-	method := strings.ToUpper(parts[0])
-	switch method {
-	case "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS":
-	default:
-		return httpHandler{}, false
-	}
-	if len(parts) == 2 && parts[1] == "root" {
-		return httpHandler{Method: method, Segments: nil, FuncName: fn.Name}, true
-	}
-	segments := []httpRouteSeg{}
-	for i := 1; i < len(parts); {
-		if parts[i] == "p" {
-			if i+1 >= len(parts) || parts[i+1] == "" {
-				return httpHandler{}, false
-			}
-			segments = append(segments, httpRouteSeg{Param: parts[i+1], IsParam: true})
-			i += 2
-			continue
-		}
-		if parts[i] == "" {
-			return httpHandler{}, false
-		}
-		segments = append(segments, httpRouteSeg{Literal: parts[i]})
-		i++
-	}
-	return httpHandler{Method: method, Segments: segments, FuncName: fn.Name}, true
+type llvmFuncRenderPlan struct {
+	fn     *mir.FuncDecl
+	abi    intrinsics.LLVMFunctionABI
+	params []intrinsics.LLVMNamedType
 }
 
-func routePattern(h httpHandler) string {
-	if len(h.Segments) == 0 {
-		return "/"
-	}
-	parts := make([]string, 0, len(h.Segments))
-	for _, seg := range h.Segments {
-		if seg.IsParam {
-			parts = append(parts, ":"+seg.Param)
-		} else {
-			parts = append(parts, seg.Literal)
-		}
-	}
-	return "/" + strings.Join(parts, "/")
+type llvmFuncBodyPlan struct {
+	fn          *mir.FuncDecl
+	topology    *mir.CFGTopology
+	deadByBlock map[string]map[int]bool
+	localABIs   []intrinsics.LLVMNamedStorageABI
 }
 
-func GenerateLLVMIR(p *ast.Program) (string, error) {
-	p = monomorphizeProgram(p)
+type llvmCFGBlockRenderPlan struct {
+	fnName  string
+	block   *mir.BasicBlock
+	deadCFG map[int]bool
+}
+
+type llvmValueStmtEmitPlan struct {
+	stmt  mir.Stmt
+	ctx   *funcCtx
+	funcs map[string]llvmFuncSig
+	name  string
+}
+
+type llvmCFGInstrEmitPlan struct {
+	stmt  mir.Stmt
+	ctx   *funcCtx
+	funcs map[string]llvmFuncSig
+}
+
+type llvmTerminatorEmitPlan struct {
+	term          mir.Terminator
+	ctx           *funcCtx
+	funcs         map[string]llvmFuncSig
+	kind          string
+	value         mir.Expr
+	cond          mir.Expr
+	subject       mir.Expr
+	target        string
+	thenTarget    string
+	elseTarget    string
+	defaultTarget string
+	matchArms     []mir.MatchTerminatorArm
+}
+
+type llvmExprEmitPlan struct {
+	ctx   *funcCtx
+	expr  mir.Expr
+	funcs map[string]llvmFuncSig
+}
+
+type llvmUnaryEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.UnaryOpStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmBinaryEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.BinaryOpStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmCallEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.CallStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmFieldAccessEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.FieldAccessStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmStructLitEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.StructLitStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmMatchValueEmitPlan struct {
+	ctx   *funcCtx
+	stmt  *mir.MatchValueStmt
+	funcs map[string]llvmFuncSig
+}
+
+type llvmAtomicExprEmitPlan struct {
+	ctx  *funcCtx
+	expr mir.Expr
+}
+
+type llvmAssignTargetEmitPlan struct {
+	ctx    *funcCtx
+	target mir.Expr
+}
+
+type llvmValueCoercionPlan struct {
+	ctx        *funcCtx
+	value      string
+	valueType  ast.Type
+	targetType ast.Type
+}
+
+type llvmStoreEmitPlan struct {
+	ctx        *funcCtx
+	ptr        string
+	targetType ast.Type
+	value      string
+	valueType  ast.Type
+}
+
+type llvmLoadValuePlan struct {
+	ctx *funcCtx
+	ptr string
+	typ ast.Type
+}
+
+type llvmBoolConvertPlan struct {
+	ctx    *funcCtx
+	value  string
+	target string
+}
+
+type llvmStringPtrPlan struct {
+	ctx   *funcCtx
+	value string
+}
+
+type llvmBindingLookupPlan struct {
+	ctx  *funcCtx
+	name string
+}
+
+type llvmFieldPathPtrPlan struct {
+	ctx    *funcCtx
+	ptr    string
+	typ    ast.Type
+	fields []string
+}
+
+type llvmStructFieldResolvePlan struct {
+	ctx   *funcCtx
+	typ   ast.Type
+	field string
+}
+
+type llvmAllocaPlan struct {
+	ctx *funcCtx
+	b   *strings.Builder
+	typ ast.Type
+}
+
+type llvmAggregateExtractPlan struct {
+	ctx  *funcCtx
+	base string
+	agg  string
+	ref  llvmStructFieldRef
+}
+
+type llvmAggregateInsertPlan struct {
+	ctx        *funcCtx
+	structType string
+	agg        string
+	ref        llvmStructFieldRef
+	value      string
+}
+
+type llvmGuardedMatchValuePlan struct {
+	b          *strings.Builder
+	ctx        *funcCtx
+	arms       []mir.MatchExprArm
+	funcs      map[string]llvmFuncSig
+	mergeLabel string
+	resolved   ast.Type
+	caseLabel  string
+}
+
+type llvmGuardedMatchTerminatorPlan struct {
+	b            *strings.Builder
+	ctx          *funcCtx
+	arms         []mir.MatchTerminatorArm
+	defaultLabel string
+	funcs        map[string]llvmFuncSig
+}
+
+type llvmDeclPreludePlan struct {
+	shape   backendmeta.ProgramShapeMeta
+	structs structPool
+	ifaces  interfacePool
+	enums   enumInfo
+}
+
+type llvmGlobalPreludePlan struct {
+	globals globalSet
+	funcs   map[string]llvmFuncSig
+	enums   enumInfo
+	structs structPool
+	ifaces  interfacePool
+	strs    stringPool
+}
+
+type llvmFunctionLoopPlan struct {
+	funcs      []*mir.FuncDecl
+	hasGlobals bool
+	renderer   llvmFunctionRenderer
+}
+
+type llvmRuntimePreludePlan struct {
+	shape   backendmeta.ProgramShapeMeta
+	structs structPool
+	ifaces  interfacePool
+	strs    stringPool
+}
+
+type llvmDeclCommentItemPlan struct {
+	kind string
+	name string
+}
+
+type llvmStructTypeItemPlan struct {
+	name    string
+	info    structInfo
+	enums   enumInfo
+	structs structPool
+	ifaces  interfacePool
+}
+
+type llvmInterfaceTypeItemPlan struct {
+	name string
+}
+
+type llvmStringGlobalItemPlan struct {
+	name  string
+	value string
+}
+
+type llvmRuntimePreludeRenderer struct {
+	section intrinsics.LLVMRuntimePreludeSection
+	render  func(llvmRuntimePreludePlan) string
+}
+
+type llvmBuiltinRuntimeRenderer struct {
+	section intrinsics.LLVMBuiltinRuntimeSection
+	render  func(structPool, stringPool) string
+}
+
+type llvmGlobalDeclItemPlan struct {
+	global globalInfo
+	abiEnv llvmABIEnv
+}
+
+type llvmGlobalInitItemPlan struct {
+	global globalInfo
+	slot   globalSlot
+	ctx    *funcCtx
+	funcs  map[string]llvmFuncSig
+	abiEnv llvmABIEnv
+}
+
+var llvmRuntimePreludeRenderers = []llvmRuntimePreludeRenderer{
+	{section: intrinsics.LLVMRuntimePreludeStringGlobals, render: func(p llvmRuntimePreludePlan) string {
+		return renderLLVMStringGlobals(p.strs)
+	}},
+	{section: intrinsics.LLVMRuntimePreludeRouteTable, render: func(p llvmRuntimePreludePlan) string {
+		return emitRouteTable(p.shape.Runtime.Routes.Handlers, p.strs)
+	}},
+	{section: intrinsics.LLVMRuntimePreludeStringRuntime, render: func(p llvmRuntimePreludePlan) string {
+		return emitStringRuntime()
+	}},
+	{section: intrinsics.LLVMRuntimePreludeBuiltin, render: func(p llvmRuntimePreludePlan) string {
+		return emitBuiltinRuntime(p.shape.RuntimeShape.LLVMRuntimeSurface.BuiltinSections, p.structs, p.ifaces, p.strs)
+	}},
+	{section: intrinsics.LLVMRuntimePreludeAnyRuntime, render: func(p llvmRuntimePreludePlan) string {
+		return emitAnyRuntime(p.strs)
+	}},
+	{section: intrinsics.LLVMRuntimePreludeStdDecls, render: func(p llvmRuntimePreludePlan) string {
+		return emitStdDecls(p.shape.RuntimeShape.LLVMRuntimeSurface.TypeAliases, p.structs)
+	}},
+}
+
+var llvmBuiltinRuntimeRenderers = []llvmBuiltinRuntimeRenderer{
+	{section: intrinsics.LLVMBuiltinRuntimeContains, render: func(structs structPool, strs stringPool) string { return emitContains() }},
+	{section: intrinsics.LLVMBuiltinRuntimeStartsWith, render: func(structs structPool, strs stringPool) string { return emitStartsWith() }},
+	{section: intrinsics.LLVMBuiltinRuntimeEndsWith, render: func(structs structPool, strs stringPool) string { return emitEndsWith() }},
+	{section: intrinsics.LLVMBuiltinRuntimeToUpper, render: func(structs structPool, strs stringPool) string {
+		return emitCaseTransform(intrinsics.LLVMRuntimeToUpperFunc, "toupper")
+	}},
+	{section: intrinsics.LLVMBuiltinRuntimeToLower, render: func(structs structPool, strs stringPool) string {
+		return emitCaseTransform(intrinsics.LLVMRuntimeToLowerFunc, "tolower")
+	}},
+	{section: intrinsics.LLVMBuiltinRuntimeTrimSpace, render: func(structs structPool, strs stringPool) string { return emitTrimSpace(strs) }},
+	{section: intrinsics.LLVMBuiltinRuntimeRepeat, render: func(structs structPool, strs stringPool) string { return emitRepeat(strs) }},
+	{section: intrinsics.LLVMBuiltinRuntimeReplace, render: func(structs structPool, strs stringPool) string { return emitReplace() }},
+	{section: intrinsics.LLVMBuiltinRuntimeIntToStr, render: func(structs structPool, strs stringPool) string { return emitIntToStr(strs) }},
+	{section: intrinsics.LLVMBuiltinRuntimeFloatToStr, render: func(structs structPool, strs stringPool) string { return emitFloatToStr(strs) }},
+	{section: intrinsics.LLVMBuiltinRuntimeParseInt, render: func(structs structPool, strs stringPool) string { return emitParseInt(structs, strs) }},
+	{section: intrinsics.LLVMBuiltinRuntimeParseFloat, render: func(structs structPool, strs stringPool) string { return emitParseFloat(structs, strs) }},
+}
+
+func buildLLVMProgramPlan(mp *mir.Program) llvmProgramPlan {
+	shape := backendmeta.CollectProgramShapeMeta(mp)
+	enums := collectEnums(shape.Enums)
+	structs := ensureRuntimeStructs(collectStructs(shape.Structs), shape.Runtime.Types.HTTPResponseType)
+	ifaces := collectInterfaces(shape.Interfaces)
+	globals := collectGlobals(shape.Globals)
+	funcSigs := map[string]llvmFuncSig{}
+	for name, sig := range shape.ProgramFuncSigs {
+		funcSigs[name] = llvmFuncSig(sig)
+	}
+	for name, sig := range shape.RuntimeShape.LLVMRuntimeSurface.FuncSigs {
+		funcSigs[name] = llvmFuncSig(sig)
+	}
+	return llvmProgramPlan{
+		shape:    shape,
+		enums:    enums,
+		structs:  structs,
+		ifaces:   ifaces,
+		globals:  globals,
+		funcSigs: funcSigs,
+		strs:     collectStringLiteralsFromMIR(mp, shape.RuntimeShape.RouteStrings),
+	}
+}
+
+func (p llvmProgramPlan) buildDeclPreludePlan() llvmDeclPreludePlan {
+	return llvmDeclPreludePlan{
+		shape:   p.shape,
+		structs: p.structs,
+		ifaces:  p.ifaces,
+		enums:   p.enums,
+	}
+}
+
+func (p llvmProgramPlan) buildGlobalPreludePlan() llvmGlobalPreludePlan {
+	return llvmGlobalPreludePlan{
+		globals: p.globals,
+		funcs:   p.funcSigs,
+		enums:   p.enums,
+		structs: p.structs,
+		ifaces:  p.ifaces,
+		strs:    p.strs,
+	}
+}
+
+func (p llvmProgramPlan) buildRuntimePreludePlan() llvmRuntimePreludePlan {
+	return llvmRuntimePreludePlan{
+		shape:   p.shape,
+		structs: p.structs,
+		ifaces:  p.ifaces,
+		strs:    p.strs,
+	}
+}
+
+func (p llvmProgramPlan) buildFunctionLoopPlan() llvmFunctionLoopPlan {
+	return llvmFunctionLoopPlan{
+		funcs:      p.shape.OrderedFuncs,
+		hasGlobals: len(p.globals.order) > 0,
+		renderer: llvmFunctionRenderer{
+			funcs:   p.funcSigs,
+			globals: p.globals.slots,
+			enums:   p.enums,
+			structs: p.structs,
+			ifaces:  p.ifaces,
+			strs:    p.strs,
+		},
+	}
+}
+
+func (p llvmProgramPlan) renderPrelude() (string, error) {
+	decls, err := p.renderDeclPrelude()
+	if err != nil {
+		return "", err
+	}
+	runtime, err := p.renderRuntimePrelude()
+	if err != nil {
+		return "", err
+	}
+	globals, err := p.renderGlobalsPrelude()
+	if err != nil {
+		return "", err
+	}
+	return decls + runtime + globals, nil
+}
+
+func (p llvmProgramPlan) renderDeclPrelude() (string, error) {
+	return p.buildDeclPreludePlan().render()
+}
+
+func (p llvmDeclPreludePlan) render() (string, error) {
+	shape := p.shape
 	var b strings.Builder
 	b.WriteString("; Bazic LLVM IR (early backend)\n")
 	b.WriteString("source_filename = \"bazic_module\"\n\n")
-	b.WriteString("declare i32 @printf(ptr, ...)\n")
-	b.WriteString("declare i64 @strlen(ptr)\n")
-	b.WriteString("declare i64 @bazic_len(ptr)\n")
-	b.WriteString("declare i32 @strcmp(ptr, ptr)\n")
-	b.WriteString("declare ptr @strstr(ptr, ptr)\n")
-	b.WriteString("declare i32 @strncmp(ptr, ptr, i64)\n")
-	b.WriteString("declare i32 @toupper(i32)\n")
-	b.WriteString("declare i32 @tolower(i32)\n")
-	b.WriteString("declare i32 @isspace(i32)\n")
-	b.WriteString("declare i64 @strtol(ptr, ptr, i32)\n")
-	b.WriteString("declare double @strtod(ptr, ptr)\n")
-	b.WriteString("declare i32 @snprintf(ptr, i64, ptr, ...)\n")
-	b.WriteString("declare ptr @malloc(i64)\n")
-	b.WriteString("declare ptr @memcpy(ptr, ptr, i64)\n\n")
-
-	enums := collectEnums(p)
-	handlers := collectHttpHandlers(p)
-	extraStrings := []string{}
-	for _, h := range handlers {
-		extraStrings = append(extraStrings, h.Method)
-		extraStrings = append(extraStrings, routePattern(h))
+	for _, decl := range shape.RuntimeShape.LLVMRuntimeSurface.PreludeDecls {
+		b.WriteString(decl)
 	}
-	strs := collectStringLiterals(p, extraStrings)
-	structs := collectStructs(p)
-	ifaces := collectInterfaces(p)
-	globals := collectGlobals(p)
+	b.WriteString("\n")
 
-	for _, d := range p.Decls {
-		switch decl := d.(type) {
-		case *ast.StructDecl:
-			b.WriteString(fmt.Sprintf("; struct %s\n", decl.Name))
-		case *ast.InterfaceDecl:
-			b.WriteString(fmt.Sprintf("; interface %s\n", decl.Name))
-		case *ast.EnumDecl:
-			b.WriteString(fmt.Sprintf("; enum %s\n", decl.Name))
-		}
+	for _, decl := range shape.StructNodes {
+		b.WriteString(llvmDeclCommentItemPlan{kind: "struct", name: decl.Name}.render())
 	}
-	if len(p.Decls) > 0 {
+	for _, decl := range shape.InterfaceNodes {
+		b.WriteString(llvmDeclCommentItemPlan{kind: "interface", name: decl.Name}.render())
+	}
+	for _, decl := range shape.EnumNodes {
+		b.WriteString(llvmDeclCommentItemPlan{kind: "enum", name: decl.Name}.render())
+	}
+	if len(shape.StructNodes)+len(shape.InterfaceNodes)+len(shape.EnumNodes)+len(shape.GlobalNodes)+len(shape.OrderedFuncs) > 0 {
 		b.WriteString("\n")
 	}
 
-	if len(structs.order) > 0 {
-		for _, name := range structs.order {
-			info := structs.byName[name]
-			decl, err := emitStructType(name, info, enums, structs, ifaces)
+	if len(p.structs.order) > 0 {
+		for _, name := range p.structs.order {
+			info := p.structs.byName[name]
+			decl, err := llvmStructTypeItemPlan{
+				name:    name,
+				info:    info,
+				enums:   p.enums,
+				structs: p.structs,
+				ifaces:  p.ifaces,
+			}.render()
 			if err != nil {
 				return "", err
 			}
@@ -166,184 +476,165 @@ func GenerateLLVMIR(p *ast.Program) (string, error) {
 		b.WriteString("\n")
 	}
 
-	if len(ifaces.order) > 0 {
-		for _, name := range ifaces.order {
-			b.WriteString(fmt.Sprintf("%%%s = type { ptr, ptr }\n", name))
+	if len(p.ifaces.order) > 0 {
+		for _, name := range p.ifaces.order {
+			b.WriteString(llvmInterfaceTypeItemPlan{name: name}.render())
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString("%Any = type { i64, ptr }\n\n")
+	return b.String(), nil
+}
 
-	if len(strs.ordered) > 0 {
-		for _, lit := range strs.ordered {
-			name := strs.names[lit]
-			b.WriteString(emitStringGlobal(name, lit))
-		}
+func (p llvmProgramPlan) renderRuntimePrelude() (string, error) {
+	return p.buildRuntimePreludePlan().render()
+}
+
+func (p llvmRuntimePreludePlan) render() (string, error) {
+	var b strings.Builder
+	for _, section := range p.shape.RuntimeShape.LLVMRuntimeSurface.PreludeSections {
+		segment := p.renderSection(section)
+		b.WriteString(segment)
 		b.WriteString("\n")
 	}
+	return b.String(), nil
+}
 
-	b.WriteString(emitRouteTable(handlers, strs))
-	b.WriteString("\n")
+func (p llvmRuntimePreludePlan) renderSection(section intrinsics.LLVMRuntimePreludeSection) string {
+	for _, renderer := range llvmRuntimePreludeRenderers {
+		if renderer.section == section {
+			return renderer.render(p)
+		}
+	}
+	return ""
+}
 
-	b.WriteString(emitStringRuntime())
-	b.WriteString("\n")
-	b.WriteString(emitBuiltinRuntime(structs, ifaces, strs))
-	b.WriteString("\n")
-	b.WriteString(emitAnyRuntime(strs))
-	b.WriteString("\n")
-	b.WriteString(emitStdDecls(structs))
-	b.WriteString("\n")
-	if len(globals.order) > 0 {
-		decls, err := emitGlobalDecls(globals, enums, structs, ifaces)
+func renderLLVMStringGlobals(strs stringPool) string {
+	if len(strs.ordered) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, lit := range strs.ordered {
+		name := strs.names[lit]
+		b.WriteString(llvmStringGlobalItemPlan{name: name, value: lit}.render())
+	}
+	return b.String()
+}
+
+func (p llvmProgramPlan) renderGlobalsPrelude() (string, error) {
+	return p.buildGlobalPreludePlan().render()
+}
+
+func (p llvmGlobalPreludePlan) render() (string, error) {
+	var b strings.Builder
+	if len(p.globals.order) > 0 {
+		decls, err := emitGlobalDecls(p.globals, p.enums, p.structs, p.ifaces)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(decls)
 		b.WriteString("\n")
-	}
-
-	funcSigs := map[string]llvmFuncSig{}
-	resultStrErr := ast.Type(resultStructName("string", "Error"))
-	resultBoolErr := ast.Type(resultStructName("bool", "Error"))
-	resultIntErr := ast.Type(resultStructName("int", "Error"))
-	resultFloatErr := ast.Type(resultStructName("float", "Error"))
-	for _, d := range p.Decls {
-		fn, ok := d.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-		if len(fn.TypeParams) > 0 {
-			return "", fmt.Errorf("llvm backend: unresolved generic function '%s'", fn.Name)
-		}
-		params := make([]ast.Type, 0, len(fn.Params))
-		for _, p := range fn.Params {
-			params = append(params, p.Type)
-		}
-		funcSigs[fn.Name] = llvmFuncSig{Params: params, Ret: fn.ReturnType}
-	}
-	if len(globals.order) > 0 {
-		initIR, err := emitGlobalInit(globals, funcSigs, enums, structs, ifaces, strs)
+		initIR, err := emitGlobalInit(p.globals, p.funcs, p.enums, p.structs, p.ifaces, p.strs)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(initIR)
 		b.WriteString("\n")
 	}
-	funcSigs["__std_read_file"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_write_file"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_read_line"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_read_all"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_exists"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeBool}
-	funcSigs["__std_mkdir_all"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_remove"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_list_dir"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_unix_millis"] = llvmFuncSig{Params: []ast.Type{}, Ret: ast.TypeInt}
-	funcSigs["__std_sleep_ms"] = llvmFuncSig{Params: []ast.Type{ast.TypeInt}, Ret: ast.TypeVoid}
-	funcSigs["__std_now_rfc3339"] = llvmFuncSig{Params: []ast.Type{}, Ret: ast.TypeString}
-	funcSigs["__std_json_escape"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_json_pretty"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_json_validate"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeBool}
-	funcSigs["__std_json_minify"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_json_get_raw"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_json_get_string"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_json_get_bool"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_json_get_int"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultIntErr}
-	funcSigs["__std_json_get_float"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultFloatErr}
-	funcSigs["__std_http_get"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_http_post"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_http_serve_text"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_http_serve_app"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_http_get_opts"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_http_post_opts"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_http_request"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_http_get_opts_resp"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type(resultStructName("HttpResponse", "Error"))}
-	funcSigs["__std_http_post_opts_resp"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type(resultStructName("HttpResponse", "Error"))}
-	funcSigs["__std_http_request_resp"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeInt, ast.TypeInt, ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeBool, ast.TypeString}, Ret: ast.Type(resultStructName("HttpResponse", "Error"))}
-	funcSigs["__std_db_exec"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_db_query"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_exec_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_db_query_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_json"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_json_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_one_json"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_one_json_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_exec_returning_id"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultIntErr}
-	funcSigs["__std_db_exec_returning_id_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultIntErr}
-	funcSigs["__std_db_exec_params"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_db_exec_params_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_db_query_params"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_params_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_json_params"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_json_params_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_one_json_params"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_query_one_json_params_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_db_exec_returning_id_params"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultIntErr}
-	funcSigs["__std_db_exec_returning_id_params_with"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultIntErr}
-	funcSigs["__std_sha256_hex"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_hmac_sha256_hex"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_jwt_sign_hs256"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_jwt_verify_hs256"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_random_hex"] = llvmFuncSig{Params: []ast.Type{ast.TypeInt}, Ret: resultStrErr}
-	funcSigs["__std_bcrypt_hash"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt}, Ret: resultStrErr}
-	funcSigs["__std_bcrypt_verify"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_session_init"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_session_put"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString, ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_session_get_user"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_session_delete"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_time_add_days"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeInt}, Ret: resultStrErr}
-	funcSigs["__std_kv_get"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_header_get"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_query_get"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_args"] = llvmFuncSig{Params: []ast.Type{}, Ret: ast.TypeString}
-	funcSigs["__std_getenv"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_cwd"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_chdir"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_env_list"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_temp_dir"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_exe_path"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_home_dir"] = llvmFuncSig{Params: []ast.Type{}, Ret: resultStrErr}
-	funcSigs["__std_web_get_json"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_web_set_json"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: resultBoolErr}
-	funcSigs["__std_base64_encode"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_base64_decode"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultStrErr}
-	funcSigs["__std_path_basename"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_path_dirname"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_path_join"] = llvmFuncSig{Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.TypeString}
-	funcSigs["__std_open_url"] = llvmFuncSig{Params: []ast.Type{ast.TypeString}, Ret: resultBoolErr}
 
-	for _, d := range p.Decls {
-		fn, ok := d.(*ast.FuncDecl)
-		if !ok {
+	return b.String(), nil
+}
+
+func (p llvmProgramPlan) renderFunctions() (string, error) {
+	return p.buildFunctionLoopPlan().render()
+}
+
+func (p llvmFunctionLoopPlan) render() (string, error) {
+	var b strings.Builder
+	emittedFuncs := map[string]bool{}
+	for _, fn := range p.funcs {
+		if emittedFuncs[fn.Name] {
 			continue
 		}
+		emittedFuncs[fn.Name] = true
 		if len(fn.TypeParams) > 0 {
 			return "", fmt.Errorf("llvm backend: unresolved generic function '%s'", fn.Name)
 		}
-		if fn.Name == "main" {
-			mainIR, err := emitMain(fn, funcSigs, globals.slots, enums, structs, ifaces, strs, len(globals.order) > 0)
-			if err != nil {
-				return "", err
-			}
-			b.WriteString(mainIR)
-			b.WriteString("\n")
-			continue
-		}
-		fnIR, err := emitFunction(fn, funcSigs, globals.slots, enums, structs, ifaces, strs)
+		fnIR, err := p.renderer.render(fn, p.hasGlobals)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(fnIR)
 		b.WriteString("\n")
 	}
-
 	return b.String(), nil
+}
+
+func (r llvmFunctionRenderer) render(fn *mir.FuncDecl, hasGlobals bool) (string, error) {
+	if fn.Name == "main" {
+		return r.renderMain(llvmMainRenderPlan{fn: fn, hasGlobals: hasGlobals})
+	}
+	return r.renderFunction(fn)
+}
+
+func (r llvmFunctionRenderer) renderMain(plan llvmMainRenderPlan) (string, error) {
+	if err := requireMIRCFGLLVM(plan.fn); err != nil {
+		return "", err
+	}
+	return renderLLVMMainBody(plan, r.funcs, r.globals, r.enums, r.structs, r.ifaces, r.strs)
+}
+
+func (r llvmFunctionRenderer) buildFunctionPlan(fn *mir.FuncDecl) (llvmFuncRenderPlan, error) {
+	abiEnv := llvmABIEnv{enums: r.enums, structs: r.structs, ifaces: r.ifaces}
+	params := make([]intrinsics.LLVMNamedType, 0, len(fn.Params))
+	for _, p := range fn.Params {
+		params = append(params, intrinsics.LLVMNamedType{Name: p.Name, Type: baztypes.ToAST(p.Type)})
+	}
+	abi, err := abiEnv.functionABIOrError(fn.Name, baztypes.ToAST(fn.ReturnType), params)
+	if err != nil {
+		return llvmFuncRenderPlan{}, err
+	}
+	return llvmFuncRenderPlan{fn: fn, abi: abi, params: params}, nil
+}
+
+func (r llvmFunctionRenderer) renderFunction(fn *mir.FuncDecl) (string, error) {
+	plan, err := r.buildFunctionPlan(fn)
+	if err != nil {
+		return "", err
+	}
+	if err := requireMIRCFGLLVM(plan.fn); err != nil {
+		return "", err
+	}
+	return renderLLVMFunctionBody(plan, r.funcs, r.globals, r.enums, r.structs, r.ifaces, r.strs)
+}
+
+func GenerateLLVMIR(p *ast.Program) (string, error) {
+	p = monomorphizeProgram(p)
+	hp, err := hir.Lower(p)
+	if err != nil {
+		return "", err
+	}
+	mp, err := mir.Lower(hp)
+	if err != nil {
+		return "", err
+	}
+	plan := buildLLVMProgramPlan(mp)
+	prelude, err := plan.renderPrelude()
+	if err != nil {
+		return "", err
+	}
+	functions, err := plan.renderFunctions()
+	if err != nil {
+		return "", err
+	}
+	return prelude + functions, nil
 }
 
 type globalInfo struct {
 	Name string
 	Type ast.Type
-	Init ast.Expr
+	Init mir.Expr
 }
 
 type globalSlot struct {
@@ -356,16 +647,14 @@ type globalSet struct {
 	slots map[string]globalSlot
 }
 
-func collectGlobals(p *ast.Program) globalSet {
+func collectGlobals(globals []backendmeta.GlobalDecl) globalSet {
 	out := globalSet{order: []globalInfo{}, slots: map[string]globalSlot{}}
-	for _, d := range p.Decls {
-		g, ok := d.(*ast.GlobalLetDecl)
-		if !ok {
-			continue
-		}
-		info := globalInfo{Name: g.Name, Type: g.Type, Init: g.Init}
+	for _, g := range globals {
+		name := g.Name
+		typ := normalizeLLVMType(g.Type)
+		info := globalInfo{Name: name, Type: typ, Init: g.Init}
 		out.order = append(out.order, info)
-		out.slots[g.Name] = globalSlot{ptr: "@" + g.Name, typ: g.Type}
+		out.slots[name] = globalSlot{ptr: "@" + name, typ: typ}
 	}
 	return out
 }
@@ -376,21 +665,18 @@ type enumInfo struct {
 	enumTypes    map[string]bool
 }
 
-func collectEnums(p *ast.Program) enumInfo {
+func collectEnums(decls []backendmeta.EnumDecl) enumInfo {
 	info := enumInfo{
 		variantIndex: map[string]int{},
 		variantType:  map[string]string{},
 		enumTypes:    map[string]bool{},
 	}
-	for _, d := range p.Decls {
-		ed, ok := d.(*ast.EnumDecl)
-		if !ok {
-			continue
-		}
-		info.enumTypes[ed.Name] = true
-		for i, v := range ed.Variants {
+	for _, decl := range decls {
+		enumName := decl.Name
+		info.enumTypes[enumName] = true
+		for i, v := range decl.Variants {
 			info.variantIndex[v] = i
-			info.variantType[v] = ed.Name
+			info.variantType[v] = enumName
 		}
 	}
 	return info
@@ -416,17 +702,14 @@ type interfacePool struct {
 	order []string
 }
 
-func collectStructs(p *ast.Program) structPool {
+func collectStructs(decls []backendmeta.StructDecl) structPool {
 	pool := structPool{
 		byName: map[string]structInfo{},
 		order:  []string{},
 	}
-	for _, d := range p.Decls {
-		decl, ok := d.(*ast.StructDecl)
-		if !ok || len(decl.TypeParams) > 0 {
-			continue
-		}
-		if _, exists := pool.byName[decl.Name]; exists {
+	for _, decl := range decls {
+		name := decl.Name
+		if _, exists := pool.byName[name]; exists {
 			continue
 		}
 		fields := make([]structFieldInfo, 0, len(decl.Fields))
@@ -435,39 +718,69 @@ func collectStructs(p *ast.Program) structPool {
 			fields = append(fields, structFieldInfo{Name: f.Name, Type: f.Type})
 			index[f.Name] = i
 		}
-		pool.byName[decl.Name] = structInfo{Fields: fields, FieldIndex: index}
-		pool.order = append(pool.order, decl.Name)
+		pool.byName[name] = structInfo{Fields: fields, FieldIndex: index}
+		pool.order = append(pool.order, name)
 	}
 	return pool
 }
 
-func collectInterfaces(p *ast.Program) interfacePool {
+func ensureRuntimeStructs(pool structPool, httpResponseType string) structPool {
+	if _, ok := pool.byName["Error"]; !ok {
+		return pool
+	}
+	addResult := func(name string, okType ast.Type) {
+		if _, exists := pool.byName[name]; exists {
+			return
+		}
+		pool.byName[name] = structInfo{
+			Fields: []structFieldInfo{
+				{Name: "is_ok", Type: ast.TypeBool},
+				{Name: "value", Type: okType},
+				{Name: "err", Type: ast.Type("Error")},
+			},
+			FieldIndex: map[string]int{
+				"is_ok": 0,
+				"value": 1,
+				"err":   2,
+			},
+		}
+		pool.order = append(pool.order, name)
+	}
+	addResult(intrinsics.LLVMResultStructName("string", "Error"), ast.TypeString)
+	addResult(intrinsics.LLVMResultStructName("bool", "Error"), ast.TypeBool)
+	addResult(intrinsics.LLVMResultStructName("int", "Error"), ast.TypeInt)
+	addResult(intrinsics.LLVMResultStructName("float", "Error"), ast.TypeFloat)
+	if _, ok := pool.byName[httpResponseType]; ok {
+		addResult(intrinsics.LLVMResultStructName(httpResponseType, "Error"), ast.Type(httpResponseType))
+	}
+	return pool
+}
+
+func collectInterfaces(decls []backendmeta.InterfaceDecl) interfacePool {
 	pool := interfacePool{
 		names: map[string]bool{},
 		order: []string{},
 	}
-	for _, d := range p.Decls {
-		decl, ok := d.(*ast.InterfaceDecl)
-		if !ok {
+	for _, decl := range decls {
+		name := decl.Name
+		if pool.names[name] {
 			continue
 		}
-		if pool.names[decl.Name] {
-			continue
-		}
-		pool.names[decl.Name] = true
-		pool.order = append(pool.order, decl.Name)
+		pool.names[name] = true
+		pool.order = append(pool.order, name)
 	}
 	return pool
 }
 
 func emitStructType(name string, info structInfo, enums enumInfo, structs structPool, ifaces interfacePool) (string, error) {
+	abiEnv := llvmABIEnv{enums: enums, structs: structs, ifaces: ifaces}
 	parts := make([]string, 0, len(info.Fields))
 	for _, f := range info.Fields {
-		llvmType, ok := mapLLVMType(f.Type, enums, structs, ifaces)
-		if !ok {
-			return "", fmt.Errorf("llvm backend: unsupported field type '%s.%s' (%s)", name, f.Name, f.Type)
+		abi, err := abiEnv.valueABIOrError(f.Type, "llvm backend: unsupported field type '%s.%s' (%s)", name, f.Name, f.Type)
+		if err != nil {
+			return "", err
 		}
-		parts = append(parts, llvmType)
+		parts = append(parts, abi.LLVMType)
 	}
 	return fmt.Sprintf("%%%s = type { %s }\n", name, strings.Join(parts, ", ")), nil
 }
@@ -477,19 +790,24 @@ type stringPool struct {
 	ordered []string
 }
 
-func collectStringLiterals(p *ast.Program, extra []string) stringPool {
+func (p *stringPool) add(lit string) {
+	if p == nil {
+		return
+	}
+	if _, ok := p.names[lit]; ok {
+		return
+	}
+	name := fmt.Sprintf(".str%d", len(p.ordered))
+	p.names[lit] = name
+	p.ordered = append(p.ordered, lit)
+}
+
+func collectStringLiteralsFromMIR(p *mir.Program, extra []string) stringPool {
 	pool := stringPool{
 		names:   map[string]string{},
 		ordered: []string{},
 	}
-	add := func(s string) {
-		if _, ok := pool.names[s]; ok {
-			return
-		}
-		name := fmt.Sprintf(".str%d", len(pool.ordered))
-		pool.names[s] = name
-		pool.ordered = append(pool.ordered, s)
-	}
+	add := pool.add
 	add("%ld")
 	add("%ld\n")
 	add("%g")
@@ -506,15 +824,88 @@ func collectStringLiterals(p *ast.Program, extra []string) stringPool {
 	for _, s := range extra {
 		add(s)
 	}
+	augmentStringPoolFromMIR(&pool, p)
+	return pool
+}
+
+func augmentStringPoolFromMIR(pool *stringPool, p *mir.Program) {
+	if pool == nil || p == nil {
+		return
+	}
 	for _, d := range p.Decls {
 		switch decl := d.(type) {
-		case *ast.FuncDecl:
-			collectStringsFromBlock(decl.Body, add)
-		case *ast.GlobalLetDecl:
-			collectStringsFromExpr(decl.Init, add)
+		case *mir.FuncDecl:
+			augmentStringPoolFromMIRBlock(pool, decl.Body)
+			augmentStringPoolFromCFG(pool, decl.CFG)
+		case *mir.GlobalLetDecl:
+			augmentStringPoolFromMIRExpr(pool, decl.Init)
 		}
 	}
-	return pool
+}
+
+func augmentStringPoolFromCFG(pool *stringPool, cfg *mir.CFG) {
+	if pool == nil || cfg == nil {
+		return
+	}
+	liveness := mir.AnalyzeCFGLivenessFromCFG(cfg)
+	deadByBlock := map[string]map[int]bool{}
+	if liveness != nil {
+		deadByBlock = liveness.DeadByBlock
+	}
+	for _, block := range cfg.Blocks {
+		if block == nil {
+			continue
+		}
+		deadCFG := deadByBlock[block.Name]
+		for i, instr := range block.Instrs {
+			if deadCFG[i] {
+				continue
+			}
+			augmentStringPoolFromMIRStmt(pool, instr)
+		}
+		augmentStringPoolFromMIRTerminator(pool, block.Term)
+	}
+}
+
+func augmentStringPoolFromMIRBlock(pool *stringPool, blk *mir.Block) {
+	if pool == nil || blk == nil {
+		return
+	}
+	for _, stmt := range blk.Stmts {
+		augmentStringPoolFromMIRStmt(pool, stmt)
+	}
+}
+
+func augmentStringPoolFromMIRStmt(pool *stringPool, stmt mir.Stmt) {
+	if pool == nil || stmt == nil {
+		return
+	}
+	mir.WalkStmtExprs(stmt, func(expr mir.Expr) {
+		augmentStringPoolFromMIRExpr(pool, expr)
+	})
+	mir.WalkStmtChildBlocks(stmt, func(block *mir.Block) {
+		augmentStringPoolFromMIRBlock(pool, block)
+	})
+}
+
+func augmentStringPoolFromMIRTerminator(pool *stringPool, term mir.Terminator) {
+	if pool == nil || term == nil {
+		return
+	}
+	mir.WalkTerminatorExprs(term, func(expr mir.Expr) {
+		augmentStringPoolFromMIRExpr(pool, expr)
+	})
+}
+
+func augmentStringPoolFromMIRExpr(pool *stringPool, expr mir.Expr) {
+	if pool == nil || expr == nil {
+		return
+	}
+	mir.WalkExpr(expr, func(expr mir.Expr) {
+		if str, ok := expr.(*mir.StringExpr); ok {
+			pool.add(str.Value)
+		}
+	})
 }
 
 func emitAnyRuntime(strs stringPool) string {
@@ -523,7 +914,7 @@ func emitAnyRuntime(strs stringPool) string {
 	falseName, falseLen := stringGlobalRef(strs, "false")
 	anyName, anyLen := stringGlobalRef(strs, "<any>")
 
-	b.WriteString("define ptr @bazic_any_to_str(%Any %v) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeAnyToStrFunc + "(%Any %v) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %tag = extractvalue %Any %v, 0\n")
 	b.WriteString("  %payload = extractvalue %Any %v, 1\n")
@@ -535,12 +926,12 @@ func emitAnyRuntime(strs stringPool) string {
 	b.WriteString("  ]\n")
 	b.WriteString("any_int:\n")
 	b.WriteString("  %ival = ptrtoint ptr %payload to i64\n")
-	b.WriteString("  %istr = call ptr @bazic_int_to_str(i64 %ival)\n")
+	b.WriteString("  %istr = call ptr @" + intrinsics.LLVMRuntimeIntToStrFunc + "(i64 %ival)\n")
 	b.WriteString("  ret ptr %istr\n")
 	b.WriteString("any_float:\n")
 	b.WriteString("  %fbits = ptrtoint ptr %payload to i64\n")
 	b.WriteString("  %fval = bitcast i64 %fbits to double\n")
-	b.WriteString("  %fstr = call ptr @bazic_float_to_str(double %fval)\n")
+	b.WriteString("  %fstr = call ptr @" + intrinsics.LLVMRuntimeFloatToStrFunc + "(double %fval)\n")
 	b.WriteString("  ret ptr %fstr\n")
 	b.WriteString("any_bool:\n")
 	b.WriteString("  %bval = ptrtoint ptr %payload to i64\n")
@@ -556,7 +947,7 @@ func emitAnyRuntime(strs stringPool) string {
 	b.WriteString("  ret ptr %any_ptr\n")
 	b.WriteString("}\n\n")
 
-	b.WriteString("define i8 @bazic_any_eq(%Any %a, %Any %b) {\n")
+	b.WriteString("define i8 @" + intrinsics.LLVMRuntimeAnyEqFunc + "(%Any %a, %Any %b) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %tagA = extractvalue %Any %a, 0\n")
 	b.WriteString("  %tagB = extractvalue %Any %b, 0\n")
@@ -594,7 +985,7 @@ func emitAnyRuntime(strs stringPool) string {
 	b.WriteString("  %eqb8 = zext i1 %eqb to i8\n")
 	b.WriteString("  ret i8 %eqb8\n")
 	b.WriteString("any_eq_string:\n")
-	b.WriteString("  %cmp = call i32 @bazic_str_cmp(ptr %payloadA, ptr %payloadB)\n")
+	b.WriteString("  %cmp = call i32 @" + intrinsics.LLVMRuntimeStrCmpFunc + "(ptr %payloadA, ptr %payloadB)\n")
 	b.WriteString("  %eqs = icmp eq i32 %cmp, 0\n")
 	b.WriteString("  %eqs8 = zext i1 %eqs to i8\n")
 	b.WriteString("  ret i8 %eqs8\n")
@@ -607,20 +998,22 @@ func emitAnyRuntime(strs stringPool) string {
 }
 
 func emitGlobalDecls(globals globalSet, enums enumInfo, structs structPool, ifaces interfacePool) (string, error) {
+	abiEnv := llvmABIEnv{enums: enums, structs: structs, ifaces: ifaces}
 	var b strings.Builder
 	for _, g := range globals.order {
-		llvmType, ok := mapLLVMType(g.Type, enums, structs, ifaces)
-		if !ok {
-			return "", fmt.Errorf("llvm backend: unsupported global type '%s' (%s)", g.Name, g.Type)
+		line, err := llvmGlobalDeclItemPlan{global: g, abiEnv: abiEnv}.render()
+		if err != nil {
+			return "", err
 		}
-		b.WriteString(fmt.Sprintf("@%s = global %s %s\n", g.Name, llvmType, defaultLLVMValue(g.Type, enums, structs, ifaces)))
+		b.WriteString(line)
 	}
 	return b.String(), nil
 }
 
 func emitGlobalInit(globals globalSet, funcs map[string]llvmFuncSig, enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool) (string, error) {
+	abiEnv := llvmABIEnv{enums: enums, structs: structs, ifaces: ifaces}
 	var b strings.Builder
-	b.WriteString("define void @__bazic_init_globals() {\n")
+	b.WriteString("define void @" + intrinsics.LLVMRuntimeInitGlobalsFunc + "() {\n")
 	b.WriteString("entry:\n")
 	ctx := newFuncCtx(enums, structs, ifaces, strs, false, globals.slots)
 	for _, g := range globals.order {
@@ -628,88 +1021,63 @@ func emitGlobalInit(globals globalSet, funcs map[string]llvmFuncSig, enums enumI
 		if !ok {
 			continue
 		}
-		code, value, t, ok := emitExpr(ctx, g.Init, funcs)
-		if !ok {
-			return "", fmt.Errorf("llvm backend: unsupported global init for '%s' (%T)", g.Name, g.Init)
+		line, err := llvmGlobalInitItemPlan{
+			global: g,
+			slot:   slot,
+			ctx:    ctx,
+			funcs:  funcs,
+			abiEnv: abiEnv,
+		}.render()
+		if err != nil {
+			return "", err
 		}
-		if slot.typ == ast.TypeAny && t != ast.TypeAny {
-			boxCode, boxed, ok := boxToAny(ctx, value, t)
-			if !ok {
-				return "", fmt.Errorf("llvm backend: unsupported global any init for '%s'", g.Name)
-			}
-			code += boxCode
-			value = boxed
-			t = ast.TypeAny
-		}
-		if t != slot.typ {
-			return "", fmt.Errorf("llvm backend: global init type mismatch for '%s' (got %s, expected %s)", g.Name, t, slot.typ)
-		}
-		b.WriteString(code)
-		llvmType, _ := mapLLVMType(slot.typ, enums, structs, ifaces)
-		b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", llvmType, value, slot.ptr))
+		b.WriteString(line)
 	}
 	b.WriteString("  ret void\n")
 	b.WriteString("}\n")
 	return b.String(), nil
 }
-func collectStringsFromBlock(b *ast.BlockStmt, add func(string)) {
-	if b == nil {
-		return
+
+func (p llvmGlobalDeclItemPlan) render() (string, error) {
+	abi, err := p.abiEnv.storageABIOrError(p.global.Type, "llvm backend: unsupported global type '%s' (%s)", p.global.Name, p.global.Type)
+	if err != nil {
+		return "", err
 	}
-	for _, st := range b.Stmts {
-		switch s := st.(type) {
-		case *ast.LetStmt:
-			collectStringsFromExpr(s.Init, add)
-		case *ast.AssignStmt:
-			collectStringsFromExpr(s.Value, add)
-		case *ast.IfStmt:
-			collectStringsFromExpr(s.Cond, add)
-			collectStringsFromBlock(s.Then, add)
-			collectStringsFromBlock(s.Else, add)
-		case *ast.WhileStmt:
-			collectStringsFromExpr(s.Cond, add)
-			collectStringsFromBlock(s.Body, add)
-		case *ast.MatchStmt:
-			collectStringsFromExpr(s.Subject, add)
-			for _, arm := range s.Arms {
-				collectStringsFromBlock(arm.Body, add)
-			}
-		case *ast.ReturnStmt:
-			collectStringsFromExpr(s.Value, add)
-		case *ast.ExprStmt:
-			collectStringsFromExpr(s.Expr, add)
-		}
-	}
+	return fmt.Sprintf("@%s = global %s %s\n", p.global.Name, abi.LLVMType, abi.DefaultValue), nil
 }
 
-func collectStringsFromExpr(e ast.Expr, add func(string)) {
-	switch ex := e.(type) {
-	case *ast.StringExpr:
-		add(ex.Value)
-	case *ast.UnaryExpr:
-		collectStringsFromExpr(ex.Right, add)
-	case *ast.BinaryExpr:
-		collectStringsFromExpr(ex.Left, add)
-		collectStringsFromExpr(ex.Right, add)
-	case *ast.CallExpr:
-		for _, a := range ex.Args {
-			collectStringsFromExpr(a, add)
-		}
-		if ex.Receiver != nil {
-			collectStringsFromExpr(ex.Receiver, add)
-		}
-	case *ast.FieldAccessExpr:
-		collectStringsFromExpr(ex.Object, add)
-	case *ast.StructLitExpr:
-		for _, f := range ex.Fields {
-			collectStringsFromExpr(f.Value, add)
-		}
-	case *ast.MatchExpr:
-		collectStringsFromExpr(ex.Subject, add)
-		for _, arm := range ex.Arms {
-			collectStringsFromExpr(arm.Value, add)
-		}
+func (p llvmGlobalInitItemPlan) render() (string, error) {
+	code, value, t, ok := emitExprMIRLLVM(p.ctx, p.global.Init, p.funcs)
+	if !ok {
+		return "", fmt.Errorf("llvm backend: unsupported global init for '%s' (%T)", p.global.Name, p.global.Init)
 	}
+	coerceCode, coerced, abi, ok := p.ctx.coerceTypedLLVMValue(p.slot.typ, value, t)
+	if !ok {
+		return "", fmt.Errorf("llvm backend: global init type mismatch for '%s' (got %s, expected %s)", p.global.Name, t, p.slot.typ)
+	}
+	code += coerceCode
+	value = coerced
+	_, err := p.abiEnv.storageABIOrError(p.slot.typ, "llvm backend: unsupported global storage type '%s' for '%s'", p.slot.typ, p.global.Name)
+	if err != nil {
+		return "", err
+	}
+	return code + fmt.Sprintf("  store %s %s, ptr %s\n", abi.LLVMType, value, p.slot.ptr), nil
+}
+
+func (p llvmDeclCommentItemPlan) render() string {
+	return fmt.Sprintf("; %s %s\n", p.kind, p.name)
+}
+
+func (p llvmStructTypeItemPlan) render() (string, error) {
+	return emitStructType(p.name, p.info, p.enums, p.structs, p.ifaces)
+}
+
+func (p llvmInterfaceTypeItemPlan) render() string {
+	return fmt.Sprintf("%%%s = type { ptr, ptr }\n", p.name)
+}
+
+func (p llvmStringGlobalItemPlan) render() string {
+	return emitStringGlobal(p.name, p.value)
 }
 
 func emitStringGlobal(name string, value string) string {
@@ -757,22 +1125,22 @@ func stringGEPConst(name string, length int) string {
 	return fmt.Sprintf("getelementptr inbounds ([%d x i8], ptr @%s, i64 0, i64 0)", length, name)
 }
 
-func emitRouteTable(handlers []httpHandler, strs stringPool) string {
+func emitRouteTable(handlers []intrinsics.HTTPHandlerSpec, strs stringPool) string {
 	var b strings.Builder
-	b.WriteString("%bazic_route = type { ptr, ptr, ptr }\n")
+	b.WriteString("%" + intrinsics.LLVMRuntimeRouteType + " = type { ptr, ptr, ptr }\n")
 	if len(handlers) == 0 {
-		b.WriteString("@__bazic_routes = global [0 x %bazic_route] []\n")
-		b.WriteString("@__bazic_routes_len = global i64 0\n")
+		b.WriteString("@" + intrinsics.LLVMRuntimeRoutesGlobal + " = global [0 x %" + intrinsics.LLVMRuntimeRouteType + "] []\n")
+		b.WriteString("@" + intrinsics.LLVMRuntimeRoutesLenGlobal + " = global i64 0\n")
 		return b.String()
 	}
-	b.WriteString(fmt.Sprintf("@__bazic_routes = global [%d x %%bazic_route] [\n", len(handlers)))
+	b.WriteString(fmt.Sprintf("@%s = global [%d x %%%s] [\n", intrinsics.LLVMRuntimeRoutesGlobal, len(handlers), intrinsics.LLVMRuntimeRouteType))
 	for i, h := range handlers {
 		methodName, methodLen := stringGlobalRef(strs, h.Method)
-		path := routePattern(h)
+		path := intrinsics.HTTPRoutePattern(h)
 		pathName, pathLen := stringGlobalRef(strs, path)
 		methodPtr := stringGEPConst(methodName, methodLen)
 		pathPtr := stringGEPConst(pathName, pathLen)
-		b.WriteString(fmt.Sprintf("  %%bazic_route { ptr %s, ptr %s, ptr @%s }", methodPtr, pathPtr, h.FuncName))
+		b.WriteString(fmt.Sprintf("  %%%s { ptr %s, ptr %s, ptr @%s }", intrinsics.LLVMRuntimeRouteType, methodPtr, pathPtr, h.FuncName))
 		if i+1 < len(handlers) {
 			b.WriteString(",\n")
 		} else {
@@ -780,25 +1148,35 @@ func emitRouteTable(handlers []httpHandler, strs stringPool) string {
 		}
 	}
 	b.WriteString("]\n")
-	b.WriteString(fmt.Sprintf("@__bazic_routes_len = global i64 %d\n", len(handlers)))
+	b.WriteString(fmt.Sprintf("@%s = global i64 %d\n", intrinsics.LLVMRuntimeRoutesLenGlobal, len(handlers)))
 	return b.String()
 }
 
 func emitStringRuntime() string {
 	var b strings.Builder
-	b.WriteString("define ptr @bazic_str_concat(ptr %a, ptr %b) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeStrConcatFunc + "(ptr %a, ptr %b) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %lenA = call i64 @strlen(ptr %a)\n")
 	b.WriteString("  %lenB = call i64 @strlen(ptr %b)\n")
 	b.WriteString("  %aempty = icmp eq i64 %lenA, 0\n")
-	b.WriteString("  br i1 %aempty, label %ret_b, label %check_b\n")
-	b.WriteString("ret_b:\n")
-	b.WriteString("  ret ptr %b\n")
+	b.WriteString("  br i1 %aempty, label %dup_b, label %check_b\n")
+	b.WriteString("dup_b:\n")
+	b.WriteString("  %dupBTotal = add i64 %lenB, 1\n")
+	b.WriteString("  %dupB = call ptr @malloc(i64 %dupBTotal)\n")
+	b.WriteString("  call ptr @memcpy(ptr %dupB, ptr %b, i64 %lenB)\n")
+	b.WriteString("  %dupBEnd = getelementptr i8, ptr %dupB, i64 %lenB\n")
+	b.WriteString("  store i8 0, ptr %dupBEnd\n")
+	b.WriteString("  ret ptr %dupB\n")
 	b.WriteString("check_b:\n")
 	b.WriteString("  %bempty = icmp eq i64 %lenB, 0\n")
-	b.WriteString("  br i1 %bempty, label %ret_a, label %cont\n")
-	b.WriteString("ret_a:\n")
-	b.WriteString("  ret ptr %a\n")
+	b.WriteString("  br i1 %bempty, label %dup_a, label %cont\n")
+	b.WriteString("dup_a:\n")
+	b.WriteString("  %dupATotal = add i64 %lenA, 1\n")
+	b.WriteString("  %dupA = call ptr @malloc(i64 %dupATotal)\n")
+	b.WriteString("  call ptr @memcpy(ptr %dupA, ptr %a, i64 %lenA)\n")
+	b.WriteString("  %dupAEnd = getelementptr i8, ptr %dupA, i64 %lenA\n")
+	b.WriteString("  store i8 0, ptr %dupAEnd\n")
+	b.WriteString("  ret ptr %dupA\n")
 	b.WriteString("cont:\n")
 	b.WriteString("  %sum = add i64 %lenA, %lenB\n")
 	b.WriteString("  %total = add i64 %sum, 1\n")
@@ -810,7 +1188,7 @@ func emitStringRuntime() string {
 	b.WriteString("  store i8 0, ptr %end\n")
 	b.WriteString("  ret ptr %buf\n")
 	b.WriteString("}\n\n")
-	b.WriteString("define i32 @bazic_str_cmp(ptr %a, ptr %b) {\n")
+	b.WriteString("define i32 @" + intrinsics.LLVMRuntimeStrCmpFunc + "(ptr %a, ptr %b) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %c = call i32 @strcmp(ptr %a, ptr %b)\n")
 	b.WriteString("  ret i32 %c\n")
@@ -818,27 +1196,54 @@ func emitStringRuntime() string {
 	return b.String()
 }
 
-func emitBuiltinRuntime(structs structPool, ifaces interfacePool, strs stringPool) string {
+func emitBuiltinRuntime(sections []intrinsics.LLVMBuiltinRuntimeSection, structs structPool, ifaces interfacePool, strs stringPool) string {
 	var b strings.Builder
 	_ = ifaces
-	b.WriteString("define i8 @bazic_contains(ptr %s, ptr %sub) {\n")
+	for _, section := range sections {
+		body := emitBuiltinRuntimeSection(section, structs, strs)
+		b.WriteString(body)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func emitBuiltinRuntimeSection(section intrinsics.LLVMBuiltinRuntimeSection, structs structPool, strs stringPool) string {
+	for _, renderer := range llvmBuiltinRuntimeRenderers {
+		if renderer.section == section {
+			return renderer.render(structs, strs)
+		}
+	}
+	return ""
+}
+
+func emitContains() string {
+	var b strings.Builder
+	b.WriteString("define i8 @" + intrinsics.LLVMRuntimeContainsFunc + "(ptr %s, ptr %sub) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %found = call ptr @strstr(ptr %s, ptr %sub)\n")
 	b.WriteString("  %ok = icmp ne ptr %found, null\n")
 	b.WriteString("  %ok8 = zext i1 %ok to i8\n")
 	b.WriteString("  ret i8 %ok8\n")
-	b.WriteString("}\n\n")
+	b.WriteString("}\n")
+	return b.String()
+}
 
-	b.WriteString("define i8 @bazic_starts_with(ptr %s, ptr %prefix) {\n")
+func emitStartsWith() string {
+	var b strings.Builder
+	b.WriteString("define i8 @" + intrinsics.LLVMRuntimeStartsWithFunc + "(ptr %s, ptr %prefix) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %len = call i64 @strlen(ptr %prefix)\n")
 	b.WriteString("  %cmp = call i32 @strncmp(ptr %s, ptr %prefix, i64 %len)\n")
 	b.WriteString("  %ok = icmp eq i32 %cmp, 0\n")
 	b.WriteString("  %ok8 = zext i1 %ok to i8\n")
 	b.WriteString("  ret i8 %ok8\n")
-	b.WriteString("}\n\n")
+	b.WriteString("}\n")
+	return b.String()
+}
 
-	b.WriteString("define i8 @bazic_ends_with(ptr %s, ptr %suffix) {\n")
+func emitEndsWith() string {
+	var b strings.Builder
+	b.WriteString("define i8 @" + intrinsics.LLVMRuntimeEndsWithFunc + "(ptr %s, ptr %suffix) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %lenS = call i64 @strlen(ptr %s)\n")
 	b.WriteString("  %lenT = call i64 @strlen(ptr %suffix)\n")
@@ -853,139 +1258,15 @@ func emitBuiltinRuntime(structs structPool, ifaces interfacePool, strs stringPoo
 	b.WriteString("  %ok = icmp eq i32 %cmp, 0\n")
 	b.WriteString("  %ok8 = zext i1 %ok to i8\n")
 	b.WriteString("  ret i8 %ok8\n")
-	b.WriteString("}\n\n")
-
-	b.WriteString(emitCaseTransform("bazic_to_upper", "toupper"))
-	b.WriteString("\n")
-	b.WriteString(emitCaseTransform("bazic_to_lower", "tolower"))
-	b.WriteString("\n")
-	b.WriteString(emitTrimSpace(strs))
-	b.WriteString("\n")
-	b.WriteString(emitRepeat(strs))
-	b.WriteString("\n")
-	b.WriteString(emitReplace())
-	b.WriteString("\n")
-	b.WriteString(emitIntToStr(strs))
-	b.WriteString("\n")
-	b.WriteString(emitFloatToStr(strs))
-	b.WriteString("\n")
-	if _, ok := structs.byName[resultStructName("int", "Error")]; ok {
-		b.WriteString(emitParseInt(structs, strs))
-		b.WriteString("\n")
-	}
-	if _, ok := structs.byName[resultStructName("float", "Error")]; ok {
-		b.WriteString(emitParseFloat(structs, strs))
-		b.WriteString("\n")
-	}
+	b.WriteString("}\n")
 	return b.String()
 }
 
-func emitStdDecls(structs structPool) string {
-	var b strings.Builder
-	resultStrErr := resultStructName("string", "Error")
-	resultBoolErr := resultStructName("bool", "Error")
-	resultIntErr := resultStructName("int", "Error")
-	resultFloatErr := resultStructName("float", "Error")
-	if _, ok := structs.byName[resultStrErr]; ok {
-		b.WriteString("declare void @__std_read_file(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_read_line(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_read_all(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_list_dir(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_json_pretty(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare i8 @__std_json_validate(ptr)\n")
-		b.WriteString("declare void @__std_json_minify(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_json_get_raw(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_json_get_string(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		if _, ok := structs.byName[resultIntErr]; ok {
-			b.WriteString("declare void @__std_json_get_int(ptr sret(%" + resultIntErr + "), ptr, ptr)\n")
-		}
-		if _, ok := structs.byName[resultFloatErr]; ok {
-			b.WriteString("declare void @__std_json_get_float(ptr sret(%" + resultFloatErr + "), ptr, ptr)\n")
-		}
-		b.WriteString("declare void @__std_http_get(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_http_post(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_http_get_opts(ptr sret(%" + resultStrErr + "), ptr, i64, i64, ptr, ptr, i8, ptr)\n")
-		b.WriteString("declare void @__std_http_post_opts(ptr sret(%" + resultStrErr + "), ptr, ptr, i64, i64, ptr, ptr, ptr, i8, ptr)\n")
-		b.WriteString("declare void @__std_http_request(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr, i64, i64, ptr, ptr, ptr, i8, ptr)\n")
-		if _, ok := structs.byName["HttpResponse"]; ok {
-			resultRespErr := resultStructName("HttpResponse", "Error")
-			b.WriteString("declare void @__std_http_get_opts_resp(ptr sret(%" + resultRespErr + "), ptr, i64, i64, ptr, ptr, i8, ptr)\n")
-			b.WriteString("declare void @__std_http_post_opts_resp(ptr sret(%" + resultRespErr + "), ptr, ptr, i64, i64, ptr, ptr, ptr, i8, ptr)\n")
-			b.WriteString("declare void @__std_http_request_resp(ptr sret(%" + resultRespErr + "), ptr, ptr, ptr, i64, i64, ptr, ptr, ptr, i8, ptr)\n")
-		}
-		b.WriteString("declare void @__std_db_exec(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_exec_with(ptr sret(%" + resultBoolErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_json(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_json_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_one_json(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_one_json_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_exec_params(ptr sret(%" + resultBoolErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_exec_params_with(ptr sret(%" + resultBoolErr + "), ptr, ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_params(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_params_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_json_params(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_json_params_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_one_json_params(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_db_query_one_json_params_with(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr, ptr)\n")
-		if _, ok := structs.byName[resultIntErr]; ok {
-			b.WriteString("declare void @__std_db_exec_returning_id(ptr sret(%" + resultIntErr + "), ptr, ptr)\n")
-			b.WriteString("declare void @__std_db_exec_returning_id_with(ptr sret(%" + resultIntErr + "), ptr, ptr, ptr)\n")
-			b.WriteString("declare void @__std_db_exec_returning_id_params(ptr sret(%" + resultIntErr + "), ptr, ptr, ptr)\n")
-			b.WriteString("declare void @__std_db_exec_returning_id_params_with(ptr sret(%" + resultIntErr + "), ptr, ptr, ptr, ptr)\n")
-		}
-		b.WriteString("declare void @__std_random_hex(ptr sret(%" + resultStrErr + "), i64)\n")
-		b.WriteString("declare void @__std_bcrypt_hash(ptr sret(%" + resultStrErr + "), ptr, i64)\n")
-		b.WriteString("declare void @__std_session_get_user(ptr sret(%" + resultStrErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_time_add_days(ptr sret(%" + resultStrErr + "), ptr, i64)\n")
-		b.WriteString("declare ptr @__std_args()\n")
-		b.WriteString("declare void @__std_getenv(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_cwd(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_chdir(ptr sret(%" + resultBoolErr + "), ptr)\n")
-		b.WriteString("declare void @__std_env_list(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_temp_dir(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_exe_path(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_home_dir(ptr sret(%" + resultStrErr + "))\n")
-		b.WriteString("declare void @__std_web_get_json(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare void @__std_web_set_json(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare ptr @__std_base64_encode(ptr)\n")
-		b.WriteString("declare void @__std_base64_decode(ptr sret(%" + resultStrErr + "), ptr)\n")
-		b.WriteString("declare ptr @__std_kv_get(ptr, ptr)\n")
-		b.WriteString("declare ptr @__std_header_get(ptr, ptr)\n")
-		b.WriteString("declare ptr @__std_query_get(ptr, ptr)\n")
-		b.WriteString("declare ptr @__std_path_basename(ptr)\n")
-		b.WriteString("declare ptr @__std_path_dirname(ptr)\n")
-		b.WriteString("declare ptr @__std_path_join(ptr, ptr)\n")
-	}
-	if _, ok := structs.byName[resultBoolErr]; ok {
-		b.WriteString("declare void @__std_write_file(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_mkdir_all(ptr sret(%" + resultBoolErr + "), ptr)\n")
-		b.WriteString("declare void @__std_remove(ptr sret(%" + resultBoolErr + "), ptr)\n")
-		b.WriteString("declare void @__std_http_serve_text(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_http_serve_app(ptr sret(%" + resultBoolErr + "), ptr)\n")
-		b.WriteString("declare void @__std_bcrypt_verify(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_json_get_bool(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_session_init(ptr sret(%" + resultBoolErr + "), ptr)\n")
-		b.WriteString("declare void @__std_session_put(ptr sret(%" + resultBoolErr + "), ptr, ptr, ptr, ptr)\n")
-		b.WriteString("declare void @__std_session_delete(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-		b.WriteString("declare void @__std_open_url(ptr sret(%" + resultBoolErr + "), ptr)\n")
-	}
-	b.WriteString("declare i8 @__std_exists(ptr)\n")
-	b.WriteString("declare i64 @__std_unix_millis()\n")
-	b.WriteString("declare void @__std_sleep_ms(i64)\n")
-	b.WriteString("declare ptr @__std_now_rfc3339()\n")
-	b.WriteString("declare ptr @__std_json_escape(ptr)\n")
-	b.WriteString("declare ptr @__std_sha256_hex(ptr)\n")
-	b.WriteString("declare ptr @__std_hmac_sha256_hex(ptr, ptr)\n")
-	b.WriteString("declare void @__std_jwt_sign_hs256(ptr sret(%" + resultStrErr + "), ptr, ptr, ptr)\n")
-	b.WriteString("declare void @__std_jwt_verify_hs256(ptr sret(%" + resultBoolErr + "), ptr, ptr)\n")
-	b.WriteString("declare void @__bazic_set_args(i32, ptr)\n")
-	return b.String()
-}
-
-func resultStructName(okType string, errType string) string {
-	return fmt.Sprintf("Result__%s__%s", sanitizeName(okType), sanitizeName(errType))
+func emitStdDecls(typeAliases map[string]ast.Type, structs structPool) string {
+	return intrinsics.FormatLLVMStdDecls(typeAliases, func(name string) bool {
+		_, ok := structs.byName[name]
+		return ok
+	})
 }
 
 func emitCaseTransform(name string, fn string) string {
@@ -1021,7 +1302,7 @@ func emitCaseTransform(name string, fn string) string {
 func emitTrimSpace(strs stringPool) string {
 	var b strings.Builder
 	emptyName, emptyLen := stringGlobalRef(strs, "")
-	b.WriteString("define ptr @bazic_trim_space(ptr %s) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeTrimSpaceFunc + "(ptr %s) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %len = call i64 @strlen(ptr %s)\n")
 	b.WriteString("  %start = alloca i64\n")
@@ -1084,7 +1365,7 @@ func emitTrimSpace(strs stringPool) string {
 func emitRepeat(strs stringPool) string {
 	var b strings.Builder
 	emptyName, emptyLen := stringGlobalRef(strs, "")
-	b.WriteString("define ptr @bazic_repeat(ptr %s, i64 %count) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeRepeatFunc + "(ptr %s, i64 %count) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %nonpos = icmp sle i64 %count, 0\n")
 	b.WriteString("  br i1 %nonpos, label %repeat_empty, label %check_one\n")
@@ -1125,7 +1406,7 @@ func emitRepeat(strs stringPool) string {
 
 func emitReplace() string {
 	var b strings.Builder
-	b.WriteString("define ptr @bazic_replace(ptr %s, ptr %old, ptr %new) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeReplaceFunc + "(ptr %s, ptr %old, ptr %new) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString("  %oldLen = call i64 @strlen(ptr %old)\n")
 	b.WriteString("  %zero = icmp eq i64 %oldLen, 0\n")
@@ -1200,7 +1481,7 @@ func emitReplace() string {
 func emitIntToStr(strs stringPool) string {
 	var b strings.Builder
 	fmtName, fmtLen := stringGlobalRef(strs, "%ld")
-	b.WriteString("define ptr @bazic_int_to_str(i64 %v) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeIntToStrFunc + "(i64 %v) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString(fmt.Sprintf("  %%fmt = %s\n", stringGEP(fmtName, fmtLen)))
 	b.WriteString("  %len32 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr null, i64 0, ptr %fmt, i64 %v)\n")
@@ -1216,7 +1497,7 @@ func emitIntToStr(strs stringPool) string {
 func emitFloatToStr(strs stringPool) string {
 	var b strings.Builder
 	fmtName, fmtLen := stringGlobalRef(strs, "%g")
-	b.WriteString("define ptr @bazic_float_to_str(double %v) {\n")
+	b.WriteString("define ptr @" + intrinsics.LLVMRuntimeFloatToStrFunc + "(double %v) {\n")
 	b.WriteString("entry:\n")
 	b.WriteString(fmt.Sprintf("  %%fmt = %s\n", stringGEP(fmtName, fmtLen)))
 	b.WriteString("  %len32 = call i32 (ptr, i64, ptr, ...) @snprintf(ptr null, i64 0, ptr %fmt, double %v)\n")
@@ -1231,10 +1512,10 @@ func emitFloatToStr(strs stringPool) string {
 
 func emitParseInt(structs structPool, strs stringPool) string {
 	var b strings.Builder
-	resultName := resultStructName("int", "Error")
+	resultName := intrinsics.LLVMResultStructName("int", "Error")
 	emptyName, emptyLen := stringGlobalRef(strs, "")
 	errName, errLen := stringGlobalRef(strs, "invalid int")
-	b.WriteString(fmt.Sprintf("define %%%s @bazic_parse_int(ptr %%s) {\n", resultName))
+	b.WriteString(fmt.Sprintf("define %%%s @%s(ptr %%s) {\n", resultName, intrinsics.LLVMRuntimeParseIntFunc))
 	b.WriteString("entry:\n")
 	b.WriteString("  %endptr = alloca ptr\n")
 	b.WriteString("  %val = call i64 @strtol(ptr %s, ptr %endptr, i32 10)\n")
@@ -1280,10 +1561,10 @@ func emitParseInt(structs structPool, strs stringPool) string {
 
 func emitParseFloat(structs structPool, strs stringPool) string {
 	var b strings.Builder
-	resultName := resultStructName("float", "Error")
+	resultName := intrinsics.LLVMResultStructName("float", "Error")
 	emptyName, emptyLen := stringGlobalRef(strs, "")
 	errName, errLen := stringGlobalRef(strs, "invalid float")
-	b.WriteString(fmt.Sprintf("define %%%s @bazic_parse_float(ptr %%s) {\n", resultName))
+	b.WriteString(fmt.Sprintf("define %%%s @%s(ptr %%s) {\n", resultName, intrinsics.LLVMRuntimeParseFloatFunc))
 	b.WriteString("entry:\n")
 	b.WriteString("  %endptr = alloca ptr\n")
 	b.WriteString("  %val = call double @strtod(ptr %s, ptr %endptr)\n")
@@ -1326,66 +1607,83 @@ func emitParseFloat(structs structPool, strs stringPool) string {
 	b.WriteString("}\n")
 	return b.String()
 }
-func emitMain(fn *ast.FuncDecl, funcs map[string]llvmFuncSig, globals map[string]globalSlot, enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool, hasGlobals bool) (string, error) {
-	var b strings.Builder
-	b.WriteString("define i32 @main(i32 %argc, ptr %argv) {\n")
-	b.WriteString("entry:\n")
-	b.WriteString("  call void @__bazic_set_args(i32 %argc, ptr %argv)\n")
+func renderLLVMMainHeader() string {
+	return "define i32 @main(i32 %argc, ptr %argv) {\nentry:\n"
+}
+
+func renderLLVMMainPrelude(b *strings.Builder, hasGlobals bool) {
+	b.WriteString("  call void @" + intrinsics.LLVMRuntimeSetArgsFunc + "(i32 %argc, ptr %argv)\n")
 	if hasGlobals {
-		b.WriteString("  call void @__bazic_init_globals()\n")
+		b.WriteString("  call void @" + intrinsics.LLVMRuntimeInitGlobalsFunc + "()\n")
 	}
-	ctx := newFuncCtx(enums, structs, ifaces, strs, true, globals)
-	ctx.returnType = ast.TypeVoid
-	if err := emitFunctionBody(&b, ctx, fn, funcs); err != nil {
-		return "", err
-	}
+}
+
+func renderLLVMMainFinalizer(b *strings.Builder, ctx *funcCtx) {
 	if !ctx.terminated {
 		b.WriteString("  ret i32 0\n")
 	}
+}
+
+func renderLLVMMainBody(plan llvmMainRenderPlan, funcs map[string]llvmFuncSig, globals map[string]globalSlot, enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool) (string, error) {
+	var b strings.Builder
+	b.WriteString(renderLLVMMainHeader())
+	renderLLVMMainPrelude(&b, plan.hasGlobals)
+	ctx := newFuncCtx(enums, structs, ifaces, strs, true, globals)
+	ctx.returnType = ast.TypeVoid
+	if err := emitFunctionBodyMIR(&b, ctx, plan.fn, funcs); err != nil {
+		return "", err
+	}
+	renderLLVMMainFinalizer(&b, ctx)
 	b.WriteString("}\n")
 	return b.String(), nil
 }
 
-func emitFunction(fn *ast.FuncDecl, funcs map[string]llvmFuncSig, globals map[string]globalSlot, enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool) (string, error) {
-	retType, ok := mapLLVMType(fn.ReturnType, enums, structs, ifaces)
-	if !ok {
-		return "", fmt.Errorf("llvm backend: unsupported return type '%s' for '%s'", fn.ReturnType, fn.Name)
+func renderLLVMFunctionHeader(plan llvmFuncRenderPlan) string {
+	paramParts := make([]string, 0, len(plan.abi.Params))
+	for _, p := range plan.abi.Params {
+		paramParts = append(paramParts, fmt.Sprintf("%s %%%s", p.LLVMType, p.Name))
 	}
-	paramParts := make([]string, 0, len(fn.Params))
-	paramTypes := map[string]ast.Type{}
-	for _, p := range fn.Params {
-		pt, ok := mapLLVMType(p.Type, enums, structs, ifaces)
-		if !ok {
-			return "", fmt.Errorf("llvm backend: unsupported param type '%s' for '%s.%s'", p.Type, fn.Name, p.Name)
-		}
-		paramParts = append(paramParts, fmt.Sprintf("%s %%%s", pt, p.Name))
-		paramTypes[p.Name] = p.Type
-	}
+	return fmt.Sprintf("define %s @%s(%s) {\nentry:\n", plan.abi.LLVMRetType, plan.fn.Name, strings.Join(paramParts, ", "))
+}
 
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("define %s @%s(%s) {\n", retType, fn.Name, strings.Join(paramParts, ", ")))
-	b.WriteString("entry:\n")
-	ctx := newFuncCtx(enums, structs, ifaces, strs, false, globals)
-	ctx.returnType = fn.ReturnType
-	for name, typ := range paramTypes {
-		ptr := ctx.alloca(&b, typ)
-		if ptr == "" {
-			return "", fmt.Errorf("llvm backend: unsupported param type '%s' for '%s.%s'", typ, fn.Name, name)
-		}
-		pt, _ := mapLLVMType(typ, enums, structs, ifaces)
-		b.WriteString(fmt.Sprintf("  store %s %%%s, ptr %s\n", pt, name, ptr))
-		ctx.vars[name] = varSlot{ptr: ptr, typ: typ}
+func renderLLVMFunctionFinalizer(b *strings.Builder, ctx *funcCtx, plan llvmFuncRenderPlan, abiEnv llvmABIEnv) error {
+	if ctx.terminated {
+		return nil
 	}
-	if err := emitFunctionBody(&b, ctx, fn, funcs); err != nil {
+	if ctx.returnType != ast.TypeVoid {
+		b.WriteString(fmt.Sprintf("  ; missing return in function %s, defaulting\n", plan.fn.Name))
+	}
+	storageABI := intrinsics.LLVMStorageABI{}
+	if ctx.returnType != ast.TypeVoid {
+		var err error
+		storageABI, err = abiEnv.storageABIOrError(ctx.returnType, "llvm backend: unsupported default return type '%s' for '%s'", ctx.returnType, plan.fn.Name)
+		if err != nil {
+			return err
+		}
+	}
+	b.WriteString(intrinsics.FormatLLVMDefaultReturn(ctx.returnType, plan.abi.LLVMRetType, storageABI.DefaultValue))
+	return nil
+}
+
+func renderLLVMFunctionBody(plan llvmFuncRenderPlan, funcs map[string]llvmFuncSig, globals map[string]globalSlot, enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool) (string, error) {
+	abiEnv := llvmABIEnv{enums: enums, structs: structs, ifaces: ifaces}
+	var b strings.Builder
+	b.WriteString(renderLLVMFunctionHeader(plan))
+	ctx := newFuncCtx(enums, structs, ifaces, strs, false, globals)
+	ctx.returnType = plan.abi.NormalizedRet
+	for _, p := range plan.abi.Params {
+		ptr, err := ctx.allocaOrError(&b, p.NormalizedType, "llvm backend: unsupported param type '%s' for '%s.%s'", p.NormalizedType, plan.fn.Name, p.Name)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(fmt.Sprintf("  store %s %%%s, ptr %s\n", p.LLVMType, p.Name, ptr))
+		ctx.vars[p.Name] = varSlot{ptr: ptr, typ: p.NormalizedType}
+	}
+	if err := emitFunctionBodyMIR(&b, ctx, plan.fn, funcs); err != nil {
 		return "", err
 	}
-	if !ctx.terminated {
-		if fn.ReturnType == ast.TypeVoid {
-			b.WriteString("  ret void\n")
-		} else {
-			b.WriteString(fmt.Sprintf("  ; missing return in function %s, defaulting\n", fn.Name))
-			b.WriteString(fmt.Sprintf("  ret %s %s\n", retType, defaultLLVMValue(fn.ReturnType, enums, structs, ifaces)))
-		}
+	if err := renderLLVMFunctionFinalizer(&b, ctx, plan, abiEnv); err != nil {
+		return "", err
 	}
 	b.WriteString("}\n")
 	return b.String(), nil
@@ -1396,10 +1694,7 @@ type irCtx struct {
 	lbl int
 }
 
-type llvmFuncSig struct {
-	Params []ast.Type
-	Ret    ast.Type
-}
+type llvmFuncSig = backendmeta.FuncSig
 
 func newIRCtx() *irCtx { return &irCtx{} }
 
@@ -1431,6 +1726,19 @@ type funcCtx struct {
 	isMain     bool
 }
 
+type llvmABIEnv struct {
+	enums   enumInfo
+	structs structPool
+	ifaces  interfacePool
+}
+
+type llvmStructFieldRef struct {
+	Base string
+	Info structFieldInfo
+	Idx  int
+	ABI  intrinsics.LLVMValueABI
+}
+
 func newFuncCtx(enums enumInfo, structs structPool, ifaces interfacePool, strs stringPool, isMain bool, globals map[string]globalSlot) *funcCtx {
 	return &funcCtx{
 		ir:      newIRCtx(),
@@ -1444,448 +1752,1024 @@ func newFuncCtx(enums enumInfo, structs structPool, ifaces interfacePool, strs s
 	}
 }
 
+func (c *funcCtx) abi() llvmABIEnv {
+	return llvmABIEnv{enums: c.enums, structs: c.structs, ifaces: c.ifaces}
+}
+
+func (c *funcCtx) bindingSlot(name string) (varSlot, bool) {
+	return llvmBindingLookupPlan{ctx: c, name: name}.lookup()
+}
+
+func (c *funcCtx) resolveStructField(t ast.Type, field string) (llvmStructFieldRef, bool) {
+	return llvmStructFieldResolvePlan{ctx: c, typ: t, field: field}.resolve()
+}
+
+func (c *funcCtx) resolveStructFieldOrError(t ast.Type, field string, format string, args ...any) (llvmStructFieldRef, error) {
+	ref, ok := c.resolveStructField(t, field)
+	if ok {
+		return ref, nil
+	}
+	return llvmStructFieldRef{}, fmt.Errorf(format, args...)
+}
+
+func (c *funcCtx) emitLoadLLVMValue(ptr string, t ast.Type) (string, string, ast.Type, bool) {
+	return llvmLoadValuePlan{ctx: c, ptr: ptr, typ: t}.emit()
+}
+
+func (p llvmLoadValuePlan) emit() (string, string, ast.Type, bool) {
+	c := p.ctx
+	ptr := p.ptr
+	t := p.typ
+	abi, ok := c.abi().valueABI(t)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	tmp := c.ir.nextTmp()
+	code := fmt.Sprintf("  %s = load %s, ptr %s\n", tmp, abi.LLVMType, ptr)
+	return code, tmp, abi.NormalizedType, true
+}
+
+func (c *funcCtx) allocaOrError(b *strings.Builder, t ast.Type, format string, args ...any) (string, error) {
+	abi, err := c.abi().storageABIOrError(t, format, args...)
+	if err != nil {
+		return "", err
+	}
+	return llvmAllocaPlan{ctx: c, b: b, typ: abi.NormalizedType}.emitWithLLVMType(abi.LLVMType), nil
+}
+
 func (c *funcCtx) alloca(b *strings.Builder, t ast.Type) string {
-	llvmType, ok := mapLLVMType(t, c.enums, c.structs, c.ifaces)
+	abi, ok := c.abi().storageABI(t)
 	if !ok {
 		return ""
 	}
-	ptr := c.ir.nextTmp()
-	b.WriteString(fmt.Sprintf("  %s = alloca %s\n", ptr, llvmType))
+	return llvmAllocaPlan{ctx: c, b: b, typ: abi.NormalizedType}.emitWithLLVMType(abi.LLVMType)
+}
+
+func (c *funcCtx) emitFieldPathPtr(ptr string, typ ast.Type, fields []string) (string, string, ast.Type, bool) {
+	return llvmFieldPathPtrPlan{ctx: c, ptr: ptr, typ: typ, fields: fields}.emit()
+}
+
+func (p llvmBindingLookupPlan) lookup() (varSlot, bool) {
+	if slot, ok := p.ctx.vars[p.name]; ok {
+		return slot, true
+	}
+	if g, ok := p.ctx.globals[p.name]; ok {
+		return varSlot{ptr: g.ptr, typ: g.typ}, true
+	}
+	return varSlot{}, false
+}
+
+func (p llvmFieldPathPtrPlan) emit() (string, string, ast.Type, bool) {
+	code := ""
+	currentPtr := p.ptr
+	currentType := p.typ
+	for _, field := range p.fields {
+		fieldRef, ok := p.ctx.resolveStructField(currentType, field)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		tmp := p.ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 %d\n", tmp, fieldRef.Base, currentPtr, fieldRef.Idx)
+		currentPtr = tmp
+		currentType = fieldRef.Info.Type
+	}
+	return code, currentPtr, currentType, true
+}
+
+func (p llvmStructFieldResolvePlan) resolve() (llvmStructFieldRef, bool) {
+	base, _ := intrinsics.LLVMGenericBase(p.typ)
+	if base == "" {
+		base = string(normalizeLLVMType(p.typ))
+	}
+	info, ok := p.ctx.structs.byName[base]
+	if !ok {
+		return llvmStructFieldRef{}, false
+	}
+	idx, ok := info.FieldIndex[p.field]
+	if !ok {
+		return llvmStructFieldRef{}, false
+	}
+	fieldInfo := info.Fields[idx]
+	abi, ok := p.ctx.abi().valueABI(fieldInfo.Type)
+	if !ok {
+		return llvmStructFieldRef{}, false
+	}
+	return llvmStructFieldRef{Base: base, Info: fieldInfo, Idx: idx, ABI: abi}, true
+}
+
+func (p llvmAllocaPlan) emitWithLLVMType(llvmType string) string {
+	ptr := p.ctx.ir.nextTmp()
+	p.b.WriteString(fmt.Sprintf("  %s = alloca %s\n", ptr, llvmType))
 	return ptr
 }
 
-func emitFunctionBody(b *strings.Builder, ctx *funcCtx, fn *ast.FuncDecl, funcs map[string]llvmFuncSig) error {
-	if fn.Body == nil {
+func (p llvmAggregateExtractPlan) emit() (string, string, ast.Type) {
+	tmp := p.ctx.ir.nextTmp()
+	code := fmt.Sprintf("  %s = extractvalue %%%s %s, %d\n", tmp, p.base, p.agg, p.ref.Idx)
+	return code, tmp, p.ref.Info.Type
+}
+
+func (p llvmAggregateInsertPlan) emit() (string, string) {
+	next := p.ctx.ir.nextTmp()
+	code := fmt.Sprintf("  %s = insertvalue %s %s, %s %s, %d\n", next, p.structType, p.agg, p.ref.ABI.LLVMType, p.value, p.ref.Idx)
+	return code, next
+}
+
+func (c *funcCtx) emitAggregateFieldExtract(base string, agg string, ref llvmStructFieldRef) (string, string, ast.Type) {
+	return llvmAggregateExtractPlan{ctx: c, base: base, agg: agg, ref: ref}.emit()
+}
+
+func (c *funcCtx) emitAggregateFieldInsert(structType string, agg string, ref llvmStructFieldRef, value string) (string, string) {
+	return llvmAggregateInsertPlan{ctx: c, structType: structType, agg: agg, ref: ref, value: value}.emit()
+}
+
+func (c *funcCtx) emitEnumSwitchDispatch(b *strings.Builder, subjVal string, subjType ast.Type, defaultLabel string, variants []string, labelPrefix string) ([]string, bool) {
+	subjABI, err := c.abi().valueABIOrError(subjType, "llvm backend: unsupported match subject type '%s'", subjType)
+	if err != nil {
+		return nil, false
+	}
+	caseLabels := make([]string, 0, len(variants))
+	b.WriteString(fmt.Sprintf("  switch %s %s, label %%%s [\n", subjABI.LLVMType, subjVal, cfgLabelLLVM(defaultLabel)))
+	for _, variant := range variants {
+		lbl := c.ir.nextLabel(labelPrefix)
+		caseLabels = append(caseLabels, lbl)
+		idx, ok := c.enums.variantIndex[variant]
+		if !ok {
+			return nil, false
+		}
+		b.WriteString(fmt.Sprintf("    %s %d, label %%%s\n", subjABI.LLVMType, idx, lbl))
+	}
+	b.WriteString("  ]\n")
+	return caseLabels, true
+}
+
+func (c *funcCtx) emitTypedReturn(b *strings.Builder, value string, valueType ast.Type) bool {
+	coerceCode, coerced, abi, ok := c.coerceTypedLLVMValue(c.returnType, value, valueType)
+	if !ok {
+		return false
+	}
+	b.WriteString(coerceCode)
+	b.WriteString(fmt.Sprintf("  ret %s %s\n", abi.LLVMType, coerced))
+	c.terminated = true
+	return true
+}
+
+func (c *funcCtx) coerceTypedLLVMValue(targetType ast.Type, value string, valueType ast.Type) (string, string, intrinsics.LLVMValueABI, bool) {
+	coerceCode, coerced, _, ok := coerceLLVMValueForTarget(c, value, valueType, targetType)
+	if !ok {
+		return "", "", intrinsics.LLVMValueABI{}, false
+	}
+	abi, err := c.abi().valueABIOrError(targetType, "llvm backend: unsupported value type '%s'", targetType)
+	if err != nil {
+		return "", "", intrinsics.LLVMValueABI{}, false
+	}
+	return coerceCode, coerced, abi, true
+}
+
+func emitFunctionBodyMIR(b *strings.Builder, ctx *funcCtx, fn *mir.FuncDecl, funcs map[string]llvmFuncSig) error {
+	if fn == nil {
 		return nil
 	}
-	for _, st := range fn.Body.Stmts {
-		if ctx.terminated {
-			return nil
+	plan, err := buildLLVMFuncBodyPlan(ctx, fn)
+	if err != nil {
+		return err
+	}
+	renderLLVMFuncLocalAllocas(b, ctx, plan.localABIs)
+	b.WriteString(fmt.Sprintf("  br label %%%s\n", cfgLabelLLVM(plan.fn.CFG.Entry)))
+	for _, name := range plan.topology.ReversePostOrderNames() {
+		if err := renderLLVMCFGBlock(b, ctx, llvmCFGBlockRenderPlan{
+			fnName:  plan.fn.Name,
+			block:   plan.topology.Blocks[name],
+			deadCFG: plan.deadByBlock[name],
+		}, funcs); err != nil {
+			return err
 		}
-		ok := emitStmt(b, ctx, st, funcs)
-		if !ok {
-			return fmt.Errorf("llvm backend: unsupported statement in function '%s': %T", fn.Name, st)
+	}
+	ctx.terminated = true
+	return nil
+}
+
+func buildLLVMFuncBodyPlan(ctx *funcCtx, fn *mir.FuncDecl) (llvmFuncBodyPlan, error) {
+	if fn == nil {
+		return llvmFuncBodyPlan{}, nil
+	}
+	if err := requireMIRCFGLLVM(fn); err != nil {
+		return llvmFuncBodyPlan{}, err
+	}
+	lets := collectCFGLetTypesLLVM(fn)
+	liveness := mir.AnalyzeCFGLiveness(fn)
+	topology := (*mir.CFGTopology)(nil)
+	deadByBlock := map[string]map[int]bool{}
+	if liveness != nil {
+		topology = liveness.Topology
+		deadByBlock = liveness.DeadByBlock
+	}
+	if topology == nil {
+		topology, _ = mir.AnalyzeCFG(fn.CFG)
+	}
+	deadNames := mir.DeadCFGValueNamesFromAnalysis(fn, liveness)
+	liveLets := map[string]ast.Type{}
+	for name, typ := range lets {
+		if _, dead := deadNames[name]; dead {
+			continue
 		}
+		liveLets[name] = typ
+	}
+	localABIs, err := ctx.abi().sortedNamedStorageABIsOrError(fn.Name, liveLets)
+	if err != nil {
+		return llvmFuncBodyPlan{}, err
+	}
+	return llvmFuncBodyPlan{
+		fn:          fn,
+		topology:    topology,
+		deadByBlock: deadByBlock,
+		localABIs:   localABIs,
+	}, nil
+}
+
+func renderLLVMFuncLocalAllocas(b *strings.Builder, ctx *funcCtx, localABIs []intrinsics.LLVMNamedStorageABI) {
+	for _, local := range localABIs {
+		ptr := ctx.ir.nextTmp()
+		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", ptr, local.Storage.LLVMType))
+		ctx.vars[local.Name] = varSlot{ptr: ptr, typ: local.Storage.NormalizedType}
+	}
+}
+
+func renderLLVMCFGBlock(b *strings.Builder, ctx *funcCtx, plan llvmCFGBlockRenderPlan, funcs map[string]llvmFuncSig) error {
+	b.WriteString(fmt.Sprintf("%s:\n", cfgLabelLLVM(plan.block.Name)))
+	for i, instr := range plan.block.Instrs {
+		if plan.deadCFG[i] {
+			continue
+		}
+		if !emitCFGInstrMIRLLVM(b, ctx, instr, funcs) {
+			return fmt.Errorf("llvm backend: unsupported mir cfg instruction in function '%s': %T", plan.fnName, instr)
+		}
+	}
+	if !emitTerminatorMIRLLVM(b, ctx, plan.block.Term, funcs) {
+		return fmt.Errorf("llvm backend: unsupported mir cfg terminator in function '%s': %T", plan.fnName, plan.block.Term)
 	}
 	return nil
 }
 
-func emitStmt(b *strings.Builder, ctx *funcCtx, s ast.Stmt, funcs map[string]llvmFuncSig) bool {
-	switch st := s.(type) {
-	case *ast.LetStmt:
-		ptr := ctx.alloca(b, st.Type)
-		if ptr == "" {
-			return false
+func requireMIRCFGLLVM(fn *mir.FuncDecl) error {
+	if fn == nil {
+		return fmt.Errorf("llvm backend: nil mir function")
+	}
+	if fn.CFG == nil {
+		return fmt.Errorf("llvm backend: function '%s' missing mir cfg", fn.Name)
+	}
+	if !mir.HasUniqueCFGBindings(fn) {
+		return fmt.Errorf("llvm backend: function '%s' has non-unique mir cfg bindings", fn.Name)
+	}
+	return nil
+}
+
+func collectCFGLetTypesLLVM(fn *mir.FuncDecl) map[string]ast.Type {
+	out := map[string]ast.Type{}
+	for name, typ := range mir.CollectCFGLetTypes(fn) {
+		out[name] = normalizeLLVMType(baztypes.ToAST(typ))
+	}
+	return out
+}
+
+func cfgLabelLLVM(name string) string {
+	return "mir_" + name
+}
+
+func emitUnaryValueStmtMIRLLVM(ctx *funcCtx, st *mir.UnaryOpStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmUnaryEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmUnaryEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	code, value, t, ok := emitExprMIRLLVM(ctx, st.Right, funcs)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	switch st.Op {
+	case "-":
+		if t == ast.TypeInt {
+			tmp := ctx.ir.nextTmp()
+			return code + fmt.Sprintf("  %s = sub i64 0, %s\n", tmp, value), tmp, ast.TypeInt, true
 		}
-		code, value, t, ok := emitExpr(ctx, st.Init, funcs)
-		if !ok {
-			return false
+		if t == ast.TypeFloat {
+			tmp := ctx.ir.nextTmp()
+			return code + fmt.Sprintf("  %s = fsub double 0.0, %s\n", tmp, value), tmp, ast.TypeFloat, true
 		}
-		if st.Type == ast.TypeAny && t != ast.TypeAny {
-			boxCode, boxed, ok := boxToAny(ctx, value, t)
-			if !ok {
-				return false
+	case "!":
+		if t == ast.TypeBool {
+			tmp := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = icmp eq i8 %s, 0\n", tmp, value)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
+		}
+	}
+	return "", "", ast.TypeInvalid, false
+}
+
+func emitBinaryValueStmtMIRLLVM(ctx *funcCtx, st *mir.BinaryOpStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmBinaryEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmBinaryEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	lc, lv, lt, ok := emitExprMIRLLVM(ctx, st.Left, funcs)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	rc, rv, rt, ok := emitExprMIRLLVM(ctx, st.Right, funcs)
+	if !ok || lt != rt {
+		return "", "", ast.TypeInvalid, false
+	}
+	code := lc + rc
+	if lt == ast.TypeInt {
+		if op, ok := mapIntArithOp(st.Op); ok {
+			tmp := ctx.ir.nextTmp()
+			return code + fmt.Sprintf("  %s = %s i64 %s, %s\n", tmp, op, lv, rv), tmp, ast.TypeInt, true
+		}
+		if op, ok := mapIntCmpOp(st.Op); ok {
+			tmp := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = icmp %s i64 %s, %s\n", tmp, op, lv, rv)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
+		}
+		return "", "", ast.TypeInvalid, false
+	}
+	if lt == ast.TypeFloat {
+		if op, ok := mapFloatArithOp(st.Op); ok {
+			tmp := ctx.ir.nextTmp()
+			return code + fmt.Sprintf("  %s = %s double %s, %s\n", tmp, op, lv, rv), tmp, ast.TypeFloat, true
+		}
+		if op, ok := mapFloatCmpOp(st.Op); ok {
+			tmp := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = fcmp %s double %s, %s\n", tmp, op, lv, rv)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
+		}
+		return "", "", ast.TypeInvalid, false
+	}
+	if _, ok := ctx.enums.enumTypes[string(lt)]; ok {
+		if st.Op == "==" || st.Op == "!=" {
+			tmp := ctx.ir.nextTmp()
+			cmp := "eq"
+			if st.Op == "!=" {
+				cmp = "ne"
 			}
-			code += boxCode
-			value = boxed
-			t = ast.TypeAny
+			code += fmt.Sprintf("  %s = icmp %s i64 %s, %s\n", tmp, cmp, lv, rv)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
 		}
-		if t != st.Type {
-			return false
+	}
+	if lt == ast.TypeBool {
+		if st.Op == "&&" || st.Op == "||" {
+			tmp := ctx.ir.nextTmp()
+			irOp := "and"
+			if st.Op == "||" {
+				irOp = "or"
+			}
+			return code + fmt.Sprintf("  %s = %s i8 %s, %s\n", tmp, irOp, lv, rv), tmp, ast.TypeBool, true
 		}
+		if st.Op == "==" || st.Op == "!=" {
+			tmp := ctx.ir.nextTmp()
+			cmp := "eq"
+			if st.Op == "!=" {
+				cmp = "ne"
+			}
+			code += fmt.Sprintf("  %s = icmp %s i8 %s, %s\n", tmp, cmp, lv, rv)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
+		}
+		return "", "", ast.TypeInvalid, false
+	}
+	if lt == ast.TypeString {
+		if st.Op == "+" {
+			tmp := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = call ptr @%s(ptr %s, ptr %s)\n", tmp, intrinsics.LLVMRuntimeStrConcatFunc, lv, rv)
+			return code, tmp, ast.TypeString, true
+		}
+		if st.Op == "==" || st.Op == "!=" || st.Op == "<" || st.Op == "<=" || st.Op == ">" || st.Op == ">=" {
+			cmpTmp := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = call i32 @%s(ptr %s, ptr %s)\n", cmpTmp, intrinsics.LLVMRuntimeStrCmpFunc, lv, rv)
+			tmp := ctx.ir.nextTmp()
+			cmp := "eq"
+			switch st.Op {
+			case "!=":
+				cmp = "ne"
+			case "<":
+				cmp = "slt"
+			case "<=":
+				cmp = "sle"
+			case ">":
+				cmp = "sgt"
+			case ">=":
+				cmp = "sge"
+			}
+			code += fmt.Sprintf("  %s = icmp %s i32 %s, 0\n", tmp, cmp, cmpTmp)
+			zextCode, out := boolToI8(ctx, tmp)
+			return code + zextCode, out, ast.TypeBool, true
+		}
+	}
+	if lt == ast.TypeAny && rt == ast.TypeAny && (st.Op == "==" || st.Op == "!=") {
+		tmp := ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = call i8 @%s(%%Any %s, %%Any %s)\n", tmp, intrinsics.LLVMRuntimeAnyEqFunc, lv, rv)
+		if st.Op == "!=" {
+			tmp2 := ctx.ir.nextTmp()
+			code += fmt.Sprintf("  %s = xor i8 %s, 1\n", tmp2, tmp)
+			return code, tmp2, ast.TypeBool, true
+		}
+		return code, tmp, ast.TypeBool, true
+	}
+	return "", "", ast.TypeInvalid, false
+}
+
+func emitCallValueStmtMIRLLVM(ctx *funcCtx, st *mir.CallStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmCallEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	if intrinsics.IsBuiltinVoidCall(st.Func) {
+		if len(st.Args) != 1 {
+			return "", "", ast.TypeInvalid, false
+		}
+		argCode, argVal, argType, ok := emitExprMIRLLVM(ctx, st.Args[0], funcs)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		isPrintln := st.Func == "println"
+		fmtLit, ok := intrinsics.LLVMPrintfFormat(isPrintln, argType, ctx.enums.enumTypes[string(argType)])
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		switch {
+		case argType == ast.TypeInt || ctx.enums.enumTypes[string(argType)]:
+			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, i64 %s)\n", fmtPtr, argVal), "", ast.TypeVoid, true
+		case argType == ast.TypeFloat:
+			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, double %s)\n", fmtPtr, argVal), "", ast.TypeVoid, true
+		case argType == ast.TypeBool:
+			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			trueCode, truePtr, ok := stringPtr(ctx, "true")
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			falseCode, falsePtr, ok := stringPtr(ctx, "false")
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			tmp := ctx.ir.nextTmp()
+			condCode, cond := boolToI1(ctx, argVal)
+			code := argCode + fmtCode + trueCode + falseCode + condCode
+			code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, cond, truePtr, falsePtr)
+			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
+			return code, "", ast.TypeVoid, true
+		case argType == ast.TypeString:
+			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, argVal), "", ast.TypeVoid, true
+		case argType == ast.TypeAny:
+			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			tmp := ctx.ir.nextTmp()
+			code := argCode + fmtCode
+			code += fmt.Sprintf("  %s = call ptr @%s(%%Any %s)\n", tmp, intrinsics.LLVMRuntimeAnyToStrFunc, argVal)
+			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
+			return code, "", ast.TypeVoid, true
+		default:
+			return "", "", ast.TypeInvalid, false
+		}
+	}
+	if code, value, typ, ok := emitLoweredBuiltinExprMIR(ctx, st.Func, st.Args, funcs); ok {
+		return code, value, typ, true
+	}
+	sig, ok := funcs[st.Func]
+	if !ok || len(sig.Params) != len(st.Args) {
+		return "", "", ast.TypeInvalid, false
+	}
+	var b strings.Builder
+	argParts := make([]string, 0, len(st.Args))
+	for i, a := range st.Args {
+		code, value, t, ok := emitExprMIRLLVM(ctx, a, funcs)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		coerceCode, coerced, argABI, ok := ctx.coerceTypedLLVMValue(sig.Params[i], value, t)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		code += coerceCode
+		value = coerced
 		b.WriteString(code)
-		llvmType, _ := mapLLVMType(st.Type, ctx.enums, ctx.structs, ctx.ifaces)
-		b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", llvmType, value, ptr))
-		ctx.vars[st.Name] = varSlot{ptr: ptr, typ: st.Type}
+		argParts = append(argParts, fmt.Sprintf("%s %s", argABI.LLVMType, value))
+	}
+	abi, err := ctx.abi().callABIOrError(st.Func, sig.Ret)
+	if err != nil {
+		return "", "", ast.TypeInvalid, false
+	}
+	ret := abi.NormalizedRet
+	retType := abi.LLVMRetType
+	switch abi.Convention {
+	case intrinsics.LLVMCallVoid:
+		b.WriteString(fmt.Sprintf("  call %s @%s(%s)\n", retType, st.Func, strings.Join(argParts, ", ")))
+		return b.String(), "", ast.TypeVoid, true
+	case intrinsics.LLVMCallSRet:
+		tmpPtr := ctx.ir.nextTmp()
+		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
+		args := append([]string{fmt.Sprintf("ptr sret(%s) %s", retType, tmpPtr)}, argParts...)
+		b.WriteString(fmt.Sprintf("  call void @%s(%s)\n", st.Func, strings.Join(args, ", ")))
+		loadCode, tmp, loadType, ok := ctx.emitLoadLLVMValue(tmpPtr, ret)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		b.WriteString(loadCode)
+		return b.String(), tmp, loadType, true
+	case intrinsics.LLVMCallValue:
+		tmp := ctx.ir.nextTmp()
+		b.WriteString(fmt.Sprintf("  %s = call %s @%s(%s)\n", tmp, retType, st.Func, strings.Join(argParts, ", ")))
+		return b.String(), tmp, ret, true
+	}
+	return "", "", ast.TypeInvalid, false
+}
+
+func emitFieldAccessValueStmtMIRLLVM(ctx *funcCtx, st *mir.FieldAccessStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmFieldAccessEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmFieldAccessEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	objCode, objVal, objType, ok := emitExprMIRLLVM(ctx, st.Object, funcs)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	fieldRef, err := ctx.resolveStructFieldOrError(objType, st.Field, "llvm backend: unsupported field access '%s.%s'", objType, st.Field)
+	if err != nil {
+		return "", "", ast.TypeInvalid, false
+	}
+	extractCode, tmp, outType := ctx.emitAggregateFieldExtract(fieldRef.Base, objVal, fieldRef)
+	return objCode + extractCode, tmp, outType, true
+}
+
+func emitStructLitValueStmtMIRLLVM(ctx *funcCtx, st *mir.StructLitStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmStructLitEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmStructLitEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	base, ok := intrinsics.LLVMGenericBase(ast.Type(st.TypeName))
+	if !ok {
+		base = st.TypeName
+	}
+	if _, ok := ctx.structs.byName[base]; !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	structType := "%" + base
+	code := ""
+	curr := "undef"
+	for _, f := range st.Fields {
+		fieldRef, err := ctx.resolveStructFieldOrError(ast.Type(base), f.Name, "llvm backend: unsupported struct field '%s.%s'", base, f.Name)
+		if err != nil {
+			return "", "", ast.TypeInvalid, false
+		}
+		fcode, fval, ftype, ok := emitExprMIRLLVM(ctx, f.Value, funcs)
+		if !ok || ftype != fieldRef.Info.Type {
+			return "", "", ast.TypeInvalid, false
+		}
+		code += fcode
+		insertCode, next := ctx.emitAggregateFieldInsert(structType, curr, fieldRef, fval)
+		code += insertCode
+		curr = next
+	}
+	return code, curr, ast.Type(base), true
+}
+
+func emitMatchValueStmtMIRLLVM(ctx *funcCtx, st *mir.MatchValueStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmMatchValueEmitPlan{ctx: ctx, stmt: st, funcs: funcs}.emit()
+}
+
+func (p llvmMatchValueEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	st := p.stmt
+	funcs := p.funcs
+	resolved := baztypes.ToAST(st.Type)
+	if resolved == ast.TypeInvalid {
+		return "", "", ast.TypeInvalid, false
+	}
+	code, subjVal, subjType, ok := emitExprMIRLLVM(ctx, st.Subject, funcs)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	if _, ok := ctx.enums.enumTypes[string(subjType)]; !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	storageABI, err := ctx.abi().storageABIOrError(resolved, "llvm backend: unsupported match value type '%s'", resolved)
+	if err != nil {
+		return "", "", ast.TypeInvalid, false
+	}
+	llvmType := storageABI.LLVMType
+	mergeLabel := ctx.ir.nextLabel("match_expr_end")
+	defaultLabel := ctx.ir.nextLabel("match_expr_default")
+	grouped := mir.GroupMatchExprArms(st.Arms)
+	var b strings.Builder
+	b.WriteString(code)
+	variants := make([]string, 0, len(grouped))
+	for _, g := range grouped {
+		variants = append(variants, g.Variant)
+	}
+	caseLabels, ok := ctx.emitEnumSwitchDispatch(&b, subjVal, subjType, defaultLabel, variants, "match_expr_arm")
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	phiVals := make([]string, 0, len(st.Arms))
+	for i, g := range grouped {
+		b.WriteString(fmt.Sprintf("%s:\n", caseLabels[i]))
+		entries, ok := emitGuardedMatchValueExprMIR(&b, ctx, g.Arms, funcs, mergeLabel, resolved, caseLabels[i])
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		phiVals = append(phiVals, entries...)
+	}
+	b.WriteString(fmt.Sprintf("%s:\n", defaultLabel))
+	defVal := storageABI.DefaultValue
+	b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
+	phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", defVal, defaultLabel))
+	b.WriteString(fmt.Sprintf("%s:\n", mergeLabel))
+	tmp := ctx.ir.nextTmp()
+	b.WriteString(fmt.Sprintf("  %s = phi %s %s\n", tmp, llvmType, strings.Join(phiVals, ", ")))
+	return b.String(), tmp, resolved, true
+}
+
+func emitValueStmtExprMIRLLVM(ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	plan, ok := buildLLVMValueStmtEmitPlan(ctx, s, funcs)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	return plan.emitExpr()
+}
+
+func emitValueStmtMIRLLVM(b *strings.Builder, ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) bool {
+	plan, ok := buildLLVMValueStmtEmitPlan(ctx, s, funcs)
+	if !ok {
+		return false
+	}
+	return plan.emitInto(b)
+}
+
+func coerceLLVMValueForTarget(ctx *funcCtx, value string, valueType ast.Type, targetType ast.Type) (string, string, ast.Type, bool) {
+	return llvmValueCoercionPlan{ctx: ctx, value: value, valueType: valueType, targetType: targetType}.emit()
+}
+
+func (p llvmValueCoercionPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	value := p.value
+	valueType := p.valueType
+	targetType := p.targetType
+	kind, coercedType, ok := intrinsics.ClassifyLLVMValueCoercion(targetType, valueType)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	switch kind {
+	case intrinsics.LLVMValueDirect:
+		return "", value, coercedType, true
+	case intrinsics.LLVMValueBoxAny:
+		boxCode, boxed, ok := boxToAny(ctx, value, valueType)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		return boxCode, boxed, coercedType, true
+	default:
+		return "", "", ast.TypeInvalid, false
+	}
+}
+
+func emitStoreLLVMValue(b *strings.Builder, ctx *funcCtx, ptr string, targetType ast.Type, value string, valueType ast.Type) bool {
+	return llvmStoreEmitPlan{ctx: ctx, ptr: ptr, targetType: targetType, value: value, valueType: valueType}.emitInto(b)
+}
+
+func (p llvmStoreEmitPlan) emitInto(b *strings.Builder) bool {
+	ctx := p.ctx
+	code, coerced, abi, ok := ctx.coerceTypedLLVMValue(p.targetType, p.value, p.valueType)
+	if !ok {
+		return false
+	}
+	b.WriteString(code)
+	b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", abi.LLVMType, coerced, p.ptr))
+	return true
+}
+
+func emitCFGInstrMIRLLVM(b *strings.Builder, ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) bool {
+	if mir.IsValueStmt(s) {
+		return emitValueStmtMIRLLVM(b, ctx, s, funcs)
+	}
+	plan, ok := buildLLVMCFGInstrEmitPlan(ctx, s, funcs)
+	if !ok {
+		return false
+	}
+	return plan.emitInto(b)
+}
+
+func buildLLVMValueStmtEmitPlan(ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) (llvmValueStmtEmitPlan, bool) {
+	info, ok := mir.ValueStmtInfo(s)
+	if !ok {
+		return llvmValueStmtEmitPlan{}, false
+	}
+	return llvmValueStmtEmitPlan{
+		stmt:  s,
+		ctx:   ctx,
+		funcs: funcs,
+		name:  info.Name,
+	}, true
+}
+
+func (p llvmValueStmtEmitPlan) emitExpr() (string, string, ast.Type, bool) {
+	expr, ok := mir.ValueStmtExpr(p.stmt)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+	return emitExprMIRLLVM(p.ctx, expr, p.funcs)
+}
+
+func (p llvmValueStmtEmitPlan) emitInto(b *strings.Builder) bool {
+	code, value, outType, ok := p.emitExpr()
+	if !ok {
+		return false
+	}
+	b.WriteString(code)
+	if p.name == "_" {
 		return true
-	case *ast.AssignStmt:
-		ptrCode, ptr, targetType, ok := emitAssignTargetPtr(ctx, st.Target)
+	}
+	slot, ok := p.ctx.vars[p.name]
+	if !ok {
+		return false
+	}
+	return emitStoreLLVMValue(b, p.ctx, slot.ptr, slot.typ, value, outType)
+}
+
+func buildLLVMCFGInstrEmitPlan(ctx *funcCtx, s mir.Stmt, funcs map[string]llvmFuncSig) (llvmCFGInstrEmitPlan, bool) {
+	if _, ok := mir.LinearStmtInfo(s); !ok {
+		return llvmCFGInstrEmitPlan{}, false
+	}
+	return llvmCFGInstrEmitPlan{stmt: s, ctx: ctx, funcs: funcs}, true
+}
+
+func (p llvmCFGInstrEmitPlan) emitInto(b *strings.Builder) bool {
+	info, ok := mir.LinearStmtInfo(p.stmt)
+	if !ok {
+		return false
+	}
+	if info.Target != nil {
+		ptrCode, ptr, targetType, ok := emitAssignTargetPtrMIRLLVM(p.ctx, info.Target)
 		if !ok {
 			return false
 		}
-		code, value, t, ok := emitExpr(ctx, st.Value, funcs)
+		code, value, t, ok := emitExprMIRLLVM(p.ctx, info.Value, p.funcs)
 		if !ok {
-			return false
-		}
-		if targetType == ast.TypeAny && t != ast.TypeAny {
-			boxCode, boxed, ok := boxToAny(ctx, value, t)
-			if !ok {
-				return false
-			}
-			code += boxCode
-			value = boxed
-			t = ast.TypeAny
-		}
-		if t != targetType {
 			return false
 		}
 		b.WriteString(ptrCode)
 		b.WriteString(code)
-		llvmType, _ := mapLLVMType(targetType, ctx.enums, ctx.structs, ctx.ifaces)
-		b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", llvmType, value, ptr))
-		return true
-	case *ast.ExprStmt:
-		code, _, _, ok := emitExpr(ctx, st.Expr, funcs)
-		if !ok {
-			return false
-		}
-		b.WriteString(code)
-		return true
-	case *ast.ReturnStmt:
-		if ctx.isMain {
-			if st.Value != nil {
-				return false
-			}
-			b.WriteString("  ret i32 0\n")
-			ctx.terminated = true
+		return emitStoreLLVMValue(b, p.ctx, ptr, targetType, value, t)
+	}
+	code, _, _, ok := emitExprMIRLLVM(p.ctx, info.Value, p.funcs)
+	if !ok {
+		if !mir.StmtMayHaveSideEffects(p.stmt) {
 			return true
 		}
-		if st.Value == nil {
-			b.WriteString("  ret void\n")
-			ctx.terminated = true
-			return true
-		}
-		code, value, t, ok := emitExpr(ctx, st.Value, funcs)
-		if !ok {
+		return false
+	}
+	b.WriteString(code)
+	return true
+}
+
+func emitTerminatorMIRLLVM(b *strings.Builder, ctx *funcCtx, term mir.Terminator, funcs map[string]llvmFuncSig) bool {
+	plan, ok := buildLLVMTerminatorEmitPlan(ctx, term, funcs)
+	if !ok {
+		return false
+	}
+	return plan.emitInto(b)
+}
+
+func buildLLVMTerminatorEmitPlan(ctx *funcCtx, term mir.Terminator, funcs map[string]llvmFuncSig) (llvmTerminatorEmitPlan, bool) {
+	info, ok := mir.TerminatorInfo(term)
+	if !ok {
+		return llvmTerminatorEmitPlan{}, false
+	}
+	return llvmTerminatorEmitPlan{
+		term:          term,
+		ctx:           ctx,
+		funcs:         funcs,
+		kind:          info.Kind,
+		value:         info.Value,
+		cond:          info.Cond,
+		subject:       info.Subject,
+		target:        info.Target,
+		thenTarget:    info.Then,
+		elseTarget:    info.Else,
+		defaultTarget: info.Default,
+		matchArms:     info.Arms,
+	}, true
+}
+
+func (p llvmTerminatorEmitPlan) emitReturn(b *strings.Builder) bool {
+	if p.ctx.isMain {
+		if p.value != nil {
 			return false
 		}
-		b.WriteString(code)
-		if ctx.returnType == ast.TypeAny && t != ast.TypeAny {
-			boxCode, boxed, ok := boxToAny(ctx, value, t)
-			if !ok {
-				return false
-			}
-			b.WriteString(boxCode)
-			value = boxed
-			t = ast.TypeAny
-		}
-		if t != ctx.returnType {
-			return false
-		}
-		retType, ok := mapLLVMType(ctx.returnType, ctx.enums, ctx.structs, ctx.ifaces)
-		if !ok {
-			return false
-		}
-		b.WriteString(fmt.Sprintf("  ret %s %s\n", retType, value))
-		ctx.terminated = true
+		b.WriteString("  ret i32 0\n")
+		p.ctx.terminated = true
 		return true
-	case *ast.IfStmt:
-		code, condVal, condType, ok := emitExpr(ctx, st.Cond, funcs)
-		if !ok || condType != ast.TypeBool {
-			return false
-		}
-		condCode, cond := boolToI1(ctx, condVal)
-		thenLabel := ctx.ir.nextLabel("then")
-		elseLabel := ctx.ir.nextLabel("else")
-		mergeLabel := ctx.ir.nextLabel("ifend")
-		emitIsolated := func(block *ast.BlockStmt) bool {
-			prev := ctx.terminated
-			ctx.terminated = false
-			term := emitBlock(b, ctx, block, funcs)
-			ctx.terminated = prev
-			return term
-		}
-		b.WriteString(code)
-		b.WriteString(condCode)
-		if st.Else == nil {
-			b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", cond, thenLabel, mergeLabel))
-			b.WriteString(fmt.Sprintf("%s:\n", thenLabel))
-			thenTerm := emitIsolated(st.Then)
-			if !thenTerm {
-				b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-			}
-			b.WriteString(fmt.Sprintf("%s:\n", mergeLabel))
-			ctx.terminated = false
-			return true
-		}
-		b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", cond, thenLabel, elseLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", thenLabel))
-		thenTerm := emitIsolated(st.Then)
-		if !thenTerm {
-			b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		}
-		b.WriteString(fmt.Sprintf("%s:\n", elseLabel))
-		elseTerm := emitIsolated(st.Else)
-		if !elseTerm {
-			b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		}
-		if !(thenTerm && elseTerm) {
-			b.WriteString(fmt.Sprintf("%s:\n", mergeLabel))
-		}
-		ctx.terminated = thenTerm && elseTerm
+	}
+	if p.value == nil {
+		b.WriteString("  ret void\n")
+		p.ctx.terminated = true
 		return true
-	case *ast.WhileStmt:
-		condLabel := ctx.ir.nextLabel("while_cond")
-		bodyLabel := ctx.ir.nextLabel("while_body")
-		endLabel := ctx.ir.nextLabel("while_end")
-		b.WriteString(fmt.Sprintf("  br label %%%s\n", condLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", condLabel))
-		code, condVal, condType, ok := emitExpr(ctx, st.Cond, funcs)
-		if !ok || condType != ast.TypeBool {
+	}
+	code, emittedValue, retType, ok := emitExprMIRLLVM(p.ctx, p.value, p.funcs)
+	if !ok {
+		return false
+	}
+	b.WriteString(code)
+	return p.ctx.emitTypedReturn(b, emittedValue, retType)
+}
+
+func (p llvmTerminatorEmitPlan) emitJump(b *strings.Builder) bool {
+	b.WriteString(fmt.Sprintf("  br label %%%s\n", cfgLabelLLVM(p.target)))
+	return true
+}
+
+func (p llvmTerminatorEmitPlan) emitCond(b *strings.Builder) bool {
+	code, condVal, condType, ok := emitExprMIRLLVM(p.ctx, p.cond, p.funcs)
+	if !ok || condType != ast.TypeBool {
+		return false
+	}
+	condCode, cond := boolToI1(p.ctx, condVal)
+	b.WriteString(code)
+	b.WriteString(condCode)
+	b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", cond, cfgLabelLLVM(p.thenTarget), cfgLabelLLVM(p.elseTarget)))
+	return true
+}
+
+func (p llvmTerminatorEmitPlan) emitMatch(b *strings.Builder) bool {
+	code, subjVal, subjType, ok := emitExprMIRLLVM(p.ctx, p.subject, p.funcs)
+	if !ok {
+		return false
+	}
+	if _, ok := p.ctx.enums.enumTypes[string(subjType)]; !ok {
+		return false
+	}
+	defaultLabel := p.defaultTarget
+	unreachableLabel := ""
+	if defaultLabel == "" {
+		unreachableLabel = p.ctx.ir.nextLabel("match_unreachable")
+		defaultLabel = unreachableLabel
+	}
+	grouped := mir.GroupMatchTerminatorArms(p.matchArms)
+	b.WriteString(code)
+	variants := make([]string, 0, len(grouped))
+	for _, g := range grouped {
+		variants = append(variants, g.Variant)
+	}
+	caseLabels, ok := p.ctx.emitEnumSwitchDispatch(b, subjVal, subjType, defaultLabel, variants, "match_term_case")
+	if !ok {
+		return false
+	}
+	for i, g := range grouped {
+		b.WriteString(fmt.Sprintf("%s:\n", caseLabels[i]))
+		if !emitGuardedMatchTerminatorLLVM(b, p.ctx, g.Arms, defaultLabel, p.funcs) {
 			return false
 		}
-		condCode, cond := boolToI1(ctx, condVal)
-		b.WriteString(code)
-		b.WriteString(condCode)
-		b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", cond, bodyLabel, endLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", bodyLabel))
-		bodyTerm := emitBlock(b, ctx, st.Body, funcs)
-		if !bodyTerm {
-			b.WriteString(fmt.Sprintf("  br label %%%s\n", condLabel))
-		}
-		b.WriteString(fmt.Sprintf("%s:\n", endLabel))
-		return true
-	case *ast.MatchStmt:
-		code, subjVal, subjType, ok := emitExpr(ctx, st.Subject, funcs)
-		if !ok {
-			return false
-		}
-		if _, ok := ctx.enums.enumTypes[string(subjType)]; !ok {
-			return false
-		}
-		llvmType, _ := mapLLVMType(subjType, ctx.enums, ctx.structs, ctx.ifaces)
-		endLabel := ctx.ir.nextLabel("match_end")
-		grouped := groupMatchArmsLLVM(st.Arms)
-		b.WriteString(code)
-		b.WriteString(fmt.Sprintf("  switch %s %s, label %%%s [\n", llvmType, subjVal, endLabel))
-		caseLabels := make([]string, 0, len(grouped))
-		for _, g := range grouped {
-			lbl := ctx.ir.nextLabel("match_arm")
-			caseLabels = append(caseLabels, lbl)
-			idx, ok := ctx.enums.variantIndex[g.Variant]
-			if !ok {
-				return false
-			}
-			b.WriteString(fmt.Sprintf("    %s %d, label %%%s\n", llvmType, idx, lbl))
-		}
-		b.WriteString("  ]\n")
-		for i, g := range grouped {
-			b.WriteString(fmt.Sprintf("%s:\n", caseLabels[i]))
-			if !emitGuardedMatchStmt(b, ctx, g.Arms, funcs, endLabel) {
-				return false
-			}
-		}
-		b.WriteString(fmt.Sprintf("%s:\n", endLabel))
-		return true
+	}
+	if unreachableLabel != "" {
+		b.WriteString(fmt.Sprintf("%s:\n", cfgLabelLLVM(unreachableLabel)))
+		b.WriteString("  unreachable\n")
+	}
+	return true
+}
+
+func (p llvmTerminatorEmitPlan) emitInto(b *strings.Builder) bool {
+	switch p.kind {
+	case "return":
+		return p.emitReturn(b)
+	case "jump":
+		return p.emitJump(b)
+	case "cond":
+		return p.emitCond(b)
+	case "match":
+		return p.emitMatch(b)
 	default:
 		return false
 	}
 }
 
-func emitBlock(b *strings.Builder, ctx *funcCtx, blk *ast.BlockStmt, funcs map[string]llvmFuncSig) bool {
-	if blk == nil {
-		return false
-	}
-	prevVars := ctx.vars
-	if prevVars != nil {
-		ctx.vars = make(map[string]varSlot, len(prevVars))
-		for k, v := range prevVars {
-			ctx.vars[k] = v
+func emitExprMIRLLVM(ctx *funcCtx, e mir.Expr, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	return llvmExprEmitPlan{ctx: ctx, expr: e, funcs: funcs}.emit()
+}
+
+func emitAtomicExprMIRLLVM(ctx *funcCtx, e mir.Expr) (string, string, ast.Type, bool) {
+	return llvmAtomicExprEmitPlan{ctx: ctx, expr: e}.emit()
+}
+
+func (p llvmAtomicExprEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	switch ex := p.expr.(type) {
+	case *mir.IntExpr:
+		return "", strconv.FormatInt(ex.Value, 10), ast.TypeInt, true
+	case *mir.FloatExpr:
+		return "", strconv.FormatFloat(ex.Value, 'f', -1, 64), ast.TypeFloat, true
+	case *mir.BoolExpr:
+		if ex.Value {
+			return "", "1", ast.TypeBool, true
 		}
-	} else {
-		ctx.vars = map[string]varSlot{}
-	}
-	defer func() {
-		ctx.vars = prevVars
-	}()
-	for _, st := range blk.Stmts {
-		if ctx.terminated {
-			return true
-		}
-		ok := emitStmt(b, ctx, st, funcs)
+		return "", "0", ast.TypeBool, true
+	case *mir.StringExpr:
+		code, ptr, ok := stringPtr(ctx, ex.Value)
 		if !ok {
-			return true
+			return "", "", ast.TypeInvalid, false
 		}
-	}
-	return ctx.terminated
-}
-
-type matchGroupStmt struct {
-	Variant string
-	Arms    []ast.MatchArm
-}
-
-type matchGroupExpr struct {
-	Variant string
-	Arms    []ast.MatchExprArm
-}
-
-func groupMatchArmsLLVM(arms []ast.MatchArm) []matchGroupStmt {
-	order := []string{}
-	by := map[string][]ast.MatchArm{}
-	for _, arm := range arms {
-		if _, ok := by[arm.Variant]; !ok {
-			order = append(order, arm.Variant)
+		return code, ptr, ast.TypeString, true
+	case *mir.NilExpr:
+		return "", "", ast.TypeInvalid, false
+	case *mir.IdentExpr:
+		name := ex.Name
+		if slot, ok := ctx.bindingSlot(name); ok {
+			return ctx.emitLoadLLVMValue(slot.ptr, slot.typ)
 		}
-		by[arm.Variant] = append(by[arm.Variant], arm)
-	}
-	out := make([]matchGroupStmt, 0, len(order))
-	for _, v := range order {
-		out = append(out, matchGroupStmt{Variant: v, Arms: by[v]})
-	}
-	return out
-}
-
-func groupMatchExprArmsLLVM(arms []ast.MatchExprArm) []matchGroupExpr {
-	order := []string{}
-	by := map[string][]ast.MatchExprArm{}
-	for _, arm := range arms {
-		if _, ok := by[arm.Variant]; !ok {
-			order = append(order, arm.Variant)
-		}
-		by[arm.Variant] = append(by[arm.Variant], arm)
-	}
-	out := make([]matchGroupExpr, 0, len(order))
-	for _, v := range order {
-		out = append(out, matchGroupExpr{Variant: v, Arms: by[v]})
-	}
-	return out
-}
-
-func emitGuardedMatchStmt(b *strings.Builder, ctx *funcCtx, arms []ast.MatchArm, funcs map[string]llvmFuncSig, endLabel string) bool {
-	unguarded := -1
-	for i, arm := range arms {
-		if arm.Guard == nil {
-			unguarded = i
-			break
-		}
-	}
-	nextLabel := ""
-	for i, arm := range arms {
-		if arm.Guard == nil {
-			continue
-		}
-		condCode, condVal, condType, ok := emitExpr(ctx, arm.Guard, funcs)
-		if !ok || condType != ast.TypeBool {
-			return false
-		}
-		condI1Code, condI1 := boolToI1(ctx, condVal)
-		thenLabel := ctx.ir.nextLabel("match_guard_then")
-		if i == len(arms)-1 && unguarded == -1 {
-			nextLabel = endLabel
-		} else {
-			nextLabel = ctx.ir.nextLabel("match_guard_next")
-		}
-		b.WriteString(condCode)
-		b.WriteString(condI1Code)
-		b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", condI1, thenLabel, nextLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", thenLabel))
-		term := emitBlock(b, ctx, arm.Body, funcs)
-		if !term {
-			b.WriteString(fmt.Sprintf("  br label %%%s\n", endLabel))
-		}
-		b.WriteString(fmt.Sprintf("%s:\n", nextLabel))
-	}
-	if unguarded >= 0 {
-		term := emitBlock(b, ctx, arms[unguarded].Body, funcs)
-		if !term {
-			b.WriteString(fmt.Sprintf("  br label %%%s\n", endLabel))
-		}
-	}
-	return true
-}
-
-func emitGuardedMatchExpr(b *strings.Builder, ctx *funcCtx, arms []ast.MatchExprArm, funcs map[string]llvmFuncSig, mergeLabel string, resolved ast.Type, caseLabel string) ([]string, bool) {
-	phiVals := []string{}
-	unguarded := -1
-	for i, arm := range arms {
-		if arm.Guard == nil {
-			unguarded = i
-			break
-		}
-	}
-	hasGuard := false
-	for _, arm := range arms {
-		if arm.Guard != nil {
-			hasGuard = true
-			break
-		}
-	}
-	if !hasGuard && unguarded >= 0 {
-		valCode, val, valType, ok := emitExpr(ctx, arms[unguarded].Value, funcs)
-		if !ok || valType != resolved {
-			return nil, false
-		}
-		b.WriteString(valCode)
-		b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, caseLabel))
-		return phiVals, true
-	}
-	unguardedLabel := ""
-	unguardedLabelEmitted := false
-	if unguarded >= 0 {
-		unguardedLabel = ctx.ir.nextLabel("match_unguarded")
-	}
-	guarded := []int{}
-	for i, arm := range arms {
-		if arm.Guard != nil {
-			guarded = append(guarded, i)
-		}
-	}
-	nextLabel := ""
-	for gi, idx := range guarded {
-		arm := arms[idx]
-		condCode, condVal, condType, ok := emitExpr(ctx, arm.Guard, funcs)
-		if !ok || condType != ast.TypeBool {
-			return nil, false
-		}
-		condI1Code, condI1 := boolToI1(ctx, condVal)
-		thenLabel := ctx.ir.nextLabel("match_guard_then")
-		if gi == len(guarded)-1 {
-			if unguarded >= 0 {
-				nextLabel = unguardedLabel
-			} else {
-				nextLabel = mergeLabel
+		if idx, ok := ctx.enums.variantIndex[name]; ok {
+			enumName := ctx.enums.variantType[name]
+			if enumName == "" {
+				return "", "", ast.TypeInvalid, false
 			}
-		} else {
-			nextLabel = ctx.ir.nextLabel("match_guard_next")
-		}
-		b.WriteString(condCode)
-		b.WriteString(condI1Code)
-		b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", condI1, thenLabel, nextLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", thenLabel))
-		valCode, val, valType, ok := emitExpr(ctx, arm.Value, funcs)
-		if !ok || valType != resolved {
-			return nil, false
-		}
-		b.WriteString(valCode)
-		b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, thenLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", nextLabel))
-		if nextLabel == unguardedLabel {
-			unguardedLabelEmitted = true
-		}
-	}
-	if unguarded >= 0 {
-		if unguardedLabel != "" && !unguardedLabelEmitted {
-			b.WriteString(fmt.Sprintf("%s:\n", unguardedLabel))
-		}
-		valCode, val, valType, ok := emitExpr(ctx, arms[unguarded].Value, funcs)
-		if !ok || valType != resolved {
-			return nil, false
-		}
-		b.WriteString(valCode)
-		b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, unguardedLabel))
-	}
-	return phiVals, true
-}
-
-func emitAssignTargetPtr(ctx *funcCtx, target ast.Expr) (string, string, ast.Type, bool) {
-	switch t := target.(type) {
-	case *ast.IdentExpr:
-		if slot, ok := ctx.vars[t.Name]; ok {
-			return "", slot.ptr, slot.typ, true
-		}
-		if g, ok := ctx.globals[t.Name]; ok {
-			return "", g.ptr, g.typ, true
+			return "", strconv.Itoa(idx), ast.Type(enumName), true
 		}
 		return "", "", ast.TypeInvalid, false
-	case *ast.FieldAccessExpr:
+	default:
+		return "", "", ast.TypeInvalid, false
+	}
+}
+
+func (p llvmExprEmitPlan) emit() (string, string, ast.Type, bool) {
+	if code, value, typ, ok := emitAtomicExprMIRLLVM(p.ctx, p.expr); ok {
+		return code, value, typ, true
+	}
+	switch ex := p.expr.(type) {
+	case *mir.UnaryExpr:
+		return emitUnaryValueStmtMIRLLVM(p.ctx, &mir.UnaryOpStmt{NodeInfo: ex.NodeInfo, Op: ex.Op, Right: ex.Right}, p.funcs)
+	case *mir.BinaryExpr:
+		return emitBinaryValueStmtMIRLLVM(p.ctx, &mir.BinaryOpStmt{NodeInfo: ex.NodeInfo, Op: ex.Op, Left: ex.Left, Right: ex.Right}, p.funcs)
+	case *mir.CallExpr:
+		return emitCallValueStmtMIRLLVM(p.ctx, &mir.CallStmt{NodeInfo: ex.NodeInfo, Func: ex.Func, Args: ex.Args}, p.funcs)
+	case *mir.FieldAccessExpr:
+		return emitFieldAccessValueStmtMIRLLVM(p.ctx, &mir.FieldAccessStmt{NodeInfo: ex.NodeInfo, Object: ex.Object, Field: ex.Field}, p.funcs)
+	case *mir.StructLitExpr:
+		return emitStructLitValueStmtMIRLLVM(p.ctx, &mir.StructLitStmt{NodeInfo: ex.NodeInfo, TypeName: ex.TypeName, Fields: ex.Fields}, p.funcs)
+	case *mir.MatchExpr:
+		return emitMatchValueStmtMIRLLVM(p.ctx, &mir.MatchValueStmt{NodeInfo: ex.NodeInfo, Subject: ex.Subject, Arms: ex.Arms, Type: ex.Type}, p.funcs)
+	default:
+		return "", "", ast.TypeInvalid, false
+	}
+}
+
+func emitAssignTargetPtrMIRLLVM(ctx *funcCtx, target mir.Expr) (string, string, ast.Type, bool) {
+	return llvmAssignTargetEmitPlan{ctx: ctx, target: target}.emit()
+}
+
+func (p llvmAssignTargetEmitPlan) emit() (string, string, ast.Type, bool) {
+	ctx := p.ctx
+	switch t := p.target.(type) {
+	case *mir.IdentExpr:
+		name := t.Name
+		if slot, ok := ctx.bindingSlot(name); ok {
+			return "", slot.ptr, slot.typ, true
+		}
+		return "", "", ast.TypeInvalid, false
+	case *mir.FieldAccessExpr:
 		fields := []string{}
-		cur := target
+		cur := p.target
 		for {
-			fa, ok := cur.(*ast.FieldAccessExpr)
+			fa, ok := cur.(*mir.FieldAccessExpr)
 			if !ok {
 				break
 			}
@@ -1895,701 +2779,393 @@ func emitAssignTargetPtr(ctx *funcCtx, target ast.Expr) (string, string, ast.Typ
 		for i, j := 0, len(fields)-1; i < j; i, j = i+1, j-1 {
 			fields[i], fields[j] = fields[j], fields[i]
 		}
-		baseIdent, ok := cur.(*ast.IdentExpr)
+		baseIdent, ok := cur.(*mir.IdentExpr)
 		if !ok {
 			return "", "", ast.TypeInvalid, false
 		}
-		var ptr string
-		var typ ast.Type
-		if slot, ok := ctx.vars[baseIdent.Name]; ok {
-			ptr = slot.ptr
-			typ = slot.typ
-		} else if g, ok := ctx.globals[baseIdent.Name]; ok {
-			ptr = g.ptr
-			typ = g.typ
+		baseSlot, ok := ctx.bindingSlot(baseIdent.Name)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		return ctx.emitFieldPathPtr(baseSlot.ptr, baseSlot.typ, fields)
+	default:
+		return "", "", ast.TypeInvalid, false
+	}
+}
+
+func emitGuardedMatchValueExprMIR(b *strings.Builder, ctx *funcCtx, arms []mir.MatchExprArm, funcs map[string]llvmFuncSig, mergeLabel string, resolved ast.Type, caseLabel string) ([]string, bool) {
+	return llvmGuardedMatchValuePlan{
+		b:          b,
+		ctx:        ctx,
+		arms:       arms,
+		funcs:      funcs,
+		mergeLabel: mergeLabel,
+		resolved:   resolved,
+		caseLabel:  caseLabel,
+	}.emit()
+}
+
+func (p llvmGuardedMatchValuePlan) emit() ([]string, bool) {
+	phiVals := []string{}
+	unguarded := -1
+	for i, arm := range p.arms {
+		if arm.Guard == nil {
+			unguarded = i
+			break
+		}
+	}
+	hasGuard := false
+	for _, arm := range p.arms {
+		if arm.Guard != nil {
+			hasGuard = true
+			break
+		}
+	}
+	if !hasGuard && unguarded >= 0 {
+		valCode, val, valType, ok := emitExprMIRLLVM(p.ctx, p.arms[unguarded].Value, p.funcs)
+		if !ok || valType != p.resolved {
+			return nil, false
+		}
+		p.b.WriteString(valCode)
+		p.b.WriteString(fmt.Sprintf("  br label %%%s\n", p.mergeLabel))
+		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, p.caseLabel))
+		return phiVals, true
+	}
+	unguardedLabel := ""
+	unguardedLabelEmitted := false
+	if unguarded >= 0 {
+		unguardedLabel = p.ctx.ir.nextLabel("match_unguarded")
+	}
+	guarded := []int{}
+	for i, arm := range p.arms {
+		if arm.Guard != nil {
+			guarded = append(guarded, i)
+		}
+	}
+	nextLabel := ""
+	for gi, idx := range guarded {
+		arm := p.arms[idx]
+		condCode, condVal, condType, ok := emitExprMIRLLVM(p.ctx, arm.Guard, p.funcs)
+		if !ok || condType != ast.TypeBool {
+			return nil, false
+		}
+		condI1Code, condI1 := boolToI1(p.ctx, condVal)
+		thenLabel := p.ctx.ir.nextLabel("match_guard_then")
+		if gi == len(guarded)-1 {
+			if unguarded >= 0 {
+				nextLabel = unguardedLabel
+			} else {
+				nextLabel = p.mergeLabel
+			}
 		} else {
-			return "", "", ast.TypeInvalid, false
+			nextLabel = p.ctx.ir.nextLabel("match_guard_next")
 		}
-		code := ""
-		currentPtr := ptr
-		currentType := typ
-		for _, field := range fields {
-			base, _ := splitGenericBase(string(currentType))
-			if base == "" {
-				base = string(currentType)
-			}
-			info, ok := ctx.structs.byName[base]
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			idx, ok := info.FieldIndex[field]
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code += fmt.Sprintf("  %s = getelementptr inbounds %%%s, ptr %s, i32 0, i32 %d\n", tmp, base, currentPtr, idx)
-			currentPtr = tmp
-			currentType = info.Fields[idx].Type
+		p.b.WriteString(condCode)
+		p.b.WriteString(condI1Code)
+		p.b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", condI1, thenLabel, nextLabel))
+		p.b.WriteString(fmt.Sprintf("%s:\n", thenLabel))
+		valCode, val, valType, ok := emitExprMIRLLVM(p.ctx, arm.Value, p.funcs)
+		if !ok || valType != p.resolved {
+			return nil, false
 		}
-		return code, currentPtr, currentType, true
-	default:
-		return "", "", ast.TypeInvalid, false
+		p.b.WriteString(valCode)
+		p.b.WriteString(fmt.Sprintf("  br label %%%s\n", p.mergeLabel))
+		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, thenLabel))
+		p.b.WriteString(fmt.Sprintf("%s:\n", nextLabel))
+		if nextLabel == unguardedLabel {
+			unguardedLabelEmitted = true
+		}
 	}
+	if unguarded >= 0 {
+		if unguardedLabel != "" && !unguardedLabelEmitted {
+			p.b.WriteString(fmt.Sprintf("%s:\n", unguardedLabel))
+		}
+		valCode, val, valType, ok := emitExprMIRLLVM(p.ctx, p.arms[unguarded].Value, p.funcs)
+		if !ok || valType != p.resolved {
+			return nil, false
+		}
+		p.b.WriteString(valCode)
+		p.b.WriteString(fmt.Sprintf("  br label %%%s\n", p.mergeLabel))
+		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", val, unguardedLabel))
+	}
+	return phiVals, true
 }
 
-func emitExpr(ctx *funcCtx, e ast.Expr, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
-	switch ex := e.(type) {
-	case *ast.IntExpr:
-		return "", strconv.FormatInt(ex.Value, 10), ast.TypeInt, true
-	case *ast.FloatExpr:
-		return "", strconv.FormatFloat(ex.Value, 'f', -1, 64), ast.TypeFloat, true
-	case *ast.BoolExpr:
-		if ex.Value {
-			return "", "1", ast.TypeBool, true
-		}
-		return "", "0", ast.TypeBool, true
-	case *ast.StringExpr:
-		code, ptr, ok := stringPtr(ctx, ex.Value)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		return code, ptr, ast.TypeString, true
-	case *ast.StructLitExpr:
-		base, ok := splitGenericBase(ex.TypeName)
-		if !ok {
-			base = ex.TypeName
-		}
-		info, ok := ctx.structs.byName[base]
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		structType := "%" + base
-		code := ""
-		curr := "undef"
-		for _, f := range ex.Fields {
-			idx, ok := info.FieldIndex[f.Name]
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			fcode, fval, ftype, ok := emitExpr(ctx, f.Value, funcs)
-			if !ok || ftype != info.Fields[idx].Type {
-				return "", "", ast.TypeInvalid, false
-			}
-			code += fcode
-			next := ctx.ir.nextTmp()
-			llvmFieldType, ok := mapLLVMType(info.Fields[idx].Type, ctx.enums, ctx.structs, ctx.ifaces)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			code += fmt.Sprintf("  %s = insertvalue %s %s, %s %s, %d\n", next, structType, curr, llvmFieldType, fval, idx)
-			curr = next
-		}
-		return code, curr, ast.Type(base), true
-	case *ast.FieldAccessExpr:
-		objCode, objVal, objType, ok := emitExpr(ctx, ex.Object, funcs)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		base, _ := splitGenericBase(string(objType))
-		if base == "" {
-			base = string(objType)
-		}
-		info, ok := ctx.structs.byName[base]
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		idx, ok := info.FieldIndex[ex.Field]
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		tmp := ctx.ir.nextTmp()
-		code := objCode + fmt.Sprintf("  %s = extractvalue %%%s %s, %d\n", tmp, base, objVal, idx)
-		return code, tmp, info.Fields[idx].Type, true
-	case *ast.IdentExpr:
-		if slot, ok := ctx.vars[ex.Name]; ok {
-			llvmType, ok := mapLLVMType(slot.typ, ctx.enums, ctx.structs, ctx.ifaces)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := fmt.Sprintf("  %s = load %s, ptr %s\n", tmp, llvmType, slot.ptr)
-			return code, tmp, slot.typ, true
-		}
-		if g, ok := ctx.globals[ex.Name]; ok {
-			llvmType, ok := mapLLVMType(g.typ, ctx.enums, ctx.structs, ctx.ifaces)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := fmt.Sprintf("  %s = load %s, ptr %s\n", tmp, llvmType, g.ptr)
-			return code, tmp, g.typ, true
-		}
-		if idx, ok := ctx.enums.variantIndex[ex.Name]; ok {
-			enumName := ctx.enums.variantType[ex.Name]
-			if enumName == "" {
-				return "", "", ast.TypeInvalid, false
-			}
-			return "", strconv.Itoa(idx), ast.Type(enumName), true
-		}
-		return "", "", ast.TypeInvalid, false
-	case *ast.UnaryExpr:
-		code, value, t, ok := emitExpr(ctx, ex.Right, funcs)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		switch ex.Op {
-		case "-":
-			if t == ast.TypeInt {
-				tmp := ctx.ir.nextTmp()
-				return code + fmt.Sprintf("  %s = sub i64 0, %s\n", tmp, value), tmp, ast.TypeInt, true
-			}
-			if t == ast.TypeFloat {
-				tmp := ctx.ir.nextTmp()
-				return code + fmt.Sprintf("  %s = fsub double 0.0, %s\n", tmp, value), tmp, ast.TypeFloat, true
-			}
-		case "!":
-			if t == ast.TypeBool {
-				tmp := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = icmp eq i8 %s, 0\n", tmp, value)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-		}
-		return "", "", ast.TypeInvalid, false
-	case *ast.BinaryExpr:
-		lc, lv, lt, ok := emitExpr(ctx, ex.Left, funcs)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		rc, rv, rt, ok := emitExpr(ctx, ex.Right, funcs)
-		if !ok || lt != rt {
-			return "", "", ast.TypeInvalid, false
-		}
-		code := lc + rc
-		if lt == ast.TypeInt {
-			if op, ok := mapIntArithOp(ex.Op); ok {
-				tmp := ctx.ir.nextTmp()
-				return code + fmt.Sprintf("  %s = %s i64 %s, %s\n", tmp, op, lv, rv), tmp, ast.TypeInt, true
-			}
-			if op, ok := mapIntCmpOp(ex.Op); ok {
-				tmp := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = icmp %s i64 %s, %s\n", tmp, op, lv, rv)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-			return "", "", ast.TypeInvalid, false
-		}
-		if lt == ast.TypeFloat {
-			if op, ok := mapFloatArithOp(ex.Op); ok {
-				tmp := ctx.ir.nextTmp()
-				return code + fmt.Sprintf("  %s = %s double %s, %s\n", tmp, op, lv, rv), tmp, ast.TypeFloat, true
-			}
-			if op, ok := mapFloatCmpOp(ex.Op); ok {
-				tmp := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = fcmp %s double %s, %s\n", tmp, op, lv, rv)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-			return "", "", ast.TypeInvalid, false
-		}
-		if _, ok := ctx.enums.enumTypes[string(lt)]; ok {
-			if ex.Op == "==" || ex.Op == "!=" {
-				tmp := ctx.ir.nextTmp()
-				cmp := "eq"
-				if ex.Op == "!=" {
-					cmp = "ne"
-				}
-				code += fmt.Sprintf("  %s = icmp %s i64 %s, %s\n", tmp, cmp, lv, rv)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-		}
-		if lt == ast.TypeBool {
-			if ex.Op == "&&" || ex.Op == "||" {
-				tmp := ctx.ir.nextTmp()
-				irOp := "and"
-				if ex.Op == "||" {
-					irOp = "or"
-				}
-				return code + fmt.Sprintf("  %s = %s i8 %s, %s\n", tmp, irOp, lv, rv), tmp, ast.TypeBool, true
-			}
-			if ex.Op == "==" || ex.Op == "!=" {
-				tmp := ctx.ir.nextTmp()
-				cmp := "eq"
-				if ex.Op == "!=" {
-					cmp = "ne"
-				}
-				code += fmt.Sprintf("  %s = icmp %s i8 %s, %s\n", tmp, cmp, lv, rv)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-			return "", "", ast.TypeInvalid, false
-		}
-		if lt == ast.TypeString {
-			if ex.Op == "+" {
-				tmp := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = call ptr @bazic_str_concat(ptr %s, ptr %s)\n", tmp, lv, rv)
-				return code, tmp, ast.TypeString, true
-			}
-			if ex.Op == "==" || ex.Op == "!=" || ex.Op == "<" || ex.Op == "<=" || ex.Op == ">" || ex.Op == ">=" {
-				cmpTmp := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = call i32 @bazic_str_cmp(ptr %s, ptr %s)\n", cmpTmp, lv, rv)
-				tmp := ctx.ir.nextTmp()
-				cmp := "eq"
-				switch ex.Op {
-				case "!=":
-					cmp = "ne"
-				case "<":
-					cmp = "slt"
-				case "<=":
-					cmp = "sle"
-				case ">":
-					cmp = "sgt"
-				case ">=":
-					cmp = "sge"
-				}
-				code += fmt.Sprintf("  %s = icmp %s i32 %s, 0\n", tmp, cmp, cmpTmp)
-				zextCode, out := boolToI8(ctx, tmp)
-				return code + zextCode, out, ast.TypeBool, true
-			}
-		}
-		if lt == ast.TypeAny && rt == ast.TypeAny && (ex.Op == "==" || ex.Op == "!=") {
-			tmp := ctx.ir.nextTmp()
-			code += fmt.Sprintf("  %s = call i8 @bazic_any_eq(%%Any %s, %%Any %s)\n", tmp, lv, rv)
-			if ex.Op == "!=" {
-				tmp2 := ctx.ir.nextTmp()
-				code += fmt.Sprintf("  %s = xor i8 %s, 1\n", tmp2, tmp)
-				return code, tmp2, ast.TypeBool, true
-			}
-			return code, tmp, ast.TypeBool, true
-		}
-		return "", "", ast.TypeInvalid, false
-	case *ast.CallExpr:
-		if isBuiltinVoidCall(ex.Callee) {
-			code, ok := emitBuiltinCall(ctx, ex, funcs)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			return code, "", ast.TypeVoid, true
-		}
-		if ex.Callee == "len" && len(ex.Args) == 1 {
-			code, val, t, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code += fmt.Sprintf("  %s = call i64 @bazic_len(ptr %s)\n", tmp, val)
-			return code, tmp, ast.TypeInt, true
-		}
-		if ex.Callee == "contains" && len(ex.Args) == 2 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c2, v2, t2, ok := emitExpr(ctx, ex.Args[1], funcs)
-			if !ok || t2 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + c2 + fmt.Sprintf("  %s = call i8 @bazic_contains(ptr %s, ptr %s)\n", tmp, v1, v2)
-			return code, tmp, ast.TypeBool, true
-		}
-		if ex.Callee == "starts_with" && len(ex.Args) == 2 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c2, v2, t2, ok := emitExpr(ctx, ex.Args[1], funcs)
-			if !ok || t2 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + c2 + fmt.Sprintf("  %s = call i8 @bazic_starts_with(ptr %s, ptr %s)\n", tmp, v1, v2)
-			return code, tmp, ast.TypeBool, true
-		}
-		if ex.Callee == "ends_with" && len(ex.Args) == 2 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c2, v2, t2, ok := emitExpr(ctx, ex.Args[1], funcs)
-			if !ok || t2 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + c2 + fmt.Sprintf("  %s = call i8 @bazic_ends_with(ptr %s, ptr %s)\n", tmp, v1, v2)
-			return code, tmp, ast.TypeBool, true
-		}
-		if ex.Callee == "to_upper" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + fmt.Sprintf("  %s = call ptr @bazic_to_upper(ptr %s)\n", tmp, v1)
-			return code, tmp, ast.TypeString, true
-		}
-		if ex.Callee == "to_lower" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + fmt.Sprintf("  %s = call ptr @bazic_to_lower(ptr %s)\n", tmp, v1)
-			return code, tmp, ast.TypeString, true
-		}
-		if ex.Callee == "trim_space" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + fmt.Sprintf("  %s = call ptr @bazic_trim_space(ptr %s)\n", tmp, v1)
-			return code, tmp, ast.TypeString, true
-		}
-		if ex.Callee == "replace" && len(ex.Args) == 3 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c2, v2, t2, ok := emitExpr(ctx, ex.Args[1], funcs)
-			if !ok || t2 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c3, v3, t3, ok := emitExpr(ctx, ex.Args[2], funcs)
-			if !ok || t3 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + c2 + c3 + fmt.Sprintf("  %s = call ptr @bazic_replace(ptr %s, ptr %s, ptr %s)\n", tmp, v1, v2, v3)
-			return code, tmp, ast.TypeString, true
-		}
-		if ex.Callee == "repeat" && len(ex.Args) == 2 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			c2, v2, t2, ok := emitExpr(ctx, ex.Args[1], funcs)
-			if !ok || t2 != ast.TypeInt {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			code := c1 + c2 + fmt.Sprintf("  %s = call ptr @bazic_repeat(ptr %s, i64 %s)\n", tmp, v1, v2)
-			return code, tmp, ast.TypeString, true
-		}
-		if ex.Callee == "str" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			if t1 == ast.TypeString {
-				return c1, v1, ast.TypeString, true
-			}
-			if t1 == ast.TypeBool {
-				trueCode, truePtr, ok := stringPtr(ctx, "true")
-				if !ok {
-					return "", "", ast.TypeInvalid, false
-				}
-				falseCode, falsePtr, ok := stringPtr(ctx, "false")
-				if !ok {
-					return "", "", ast.TypeInvalid, false
-				}
-				tmp := ctx.ir.nextTmp()
-				condCode, cond := boolToI1(ctx, v1)
-				code := c1 + trueCode + falseCode + condCode
-				code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, cond, truePtr, falsePtr)
-				return code, tmp, ast.TypeString, true
-			}
-			if t1 == ast.TypeInt || ctx.enums.enumTypes[string(t1)] {
-				tmp := ctx.ir.nextTmp()
-				code := c1 + fmt.Sprintf("  %s = call ptr @bazic_int_to_str(i64 %s)\n", tmp, v1)
-				return code, tmp, ast.TypeString, true
-			}
-			if t1 == ast.TypeFloat {
-				tmp := ctx.ir.nextTmp()
-				code := c1 + fmt.Sprintf("  %s = call ptr @bazic_float_to_str(double %s)\n", tmp, v1)
-				return code, tmp, ast.TypeString, true
-			}
-			if t1 == ast.TypeAny {
-				tmp := ctx.ir.nextTmp()
-				code := c1 + fmt.Sprintf("  %s = call ptr @bazic_any_to_str(%%Any %s)\n", tmp, v1)
-				return code, tmp, ast.TypeString, true
-			}
-			return "", "", ast.TypeInvalid, false
-		}
-		if ex.Callee == "parse_int" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			typeName := resultStructName("int", "Error")
-			code := c1 + fmt.Sprintf("  %s = call %%%s @bazic_parse_int(ptr %s)\n", tmp, typeName, v1)
-			return code, tmp, ast.Type(typeName), true
-		}
-		if ex.Callee == "parse_float" && len(ex.Args) == 1 {
-			c1, v1, t1, ok := emitExpr(ctx, ex.Args[0], funcs)
-			if !ok || t1 != ast.TypeString {
-				return "", "", ast.TypeInvalid, false
-			}
-			tmp := ctx.ir.nextTmp()
-			typeName := resultStructName("float", "Error")
-			code := c1 + fmt.Sprintf("  %s = call %%%s @bazic_parse_float(ptr %s)\n", tmp, typeName, v1)
-			return code, tmp, ast.Type(typeName), true
-		}
-		sig, ok := funcs[ex.Callee]
-		if !ok || len(sig.Params) != len(ex.Args) {
-			return "", "", ast.TypeInvalid, false
-		}
-		var b strings.Builder
-		argParts := make([]string, 0, len(ex.Args))
-		for i, a := range ex.Args {
-			code, value, t, ok := emitExpr(ctx, a, funcs)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			if sig.Params[i] == ast.TypeAny && t != ast.TypeAny {
-				boxCode, boxed, ok := boxToAny(ctx, value, t)
-				if !ok {
-					return "", "", ast.TypeInvalid, false
-				}
-				code += boxCode
-				value = boxed
-				t = ast.TypeAny
-			}
-			if t != sig.Params[i] {
-				return "", "", ast.TypeInvalid, false
-			}
-			b.WriteString(code)
-			llvmType, ok := mapLLVMType(t, ctx.enums, ctx.structs, ctx.ifaces)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			argParts = append(argParts, fmt.Sprintf("%s %s", llvmType, value))
-		}
-		retType, ok := mapLLVMType(sig.Ret, ctx.enums, ctx.structs, ctx.ifaces)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		if sig.Ret == ast.TypeVoid {
-			b.WriteString(fmt.Sprintf("  call %s @%s(%s)\n", retType, ex.Callee, strings.Join(argParts, ", ")))
-			return b.String(), "", ast.TypeVoid, true
-		}
-		if strings.HasPrefix(ex.Callee, "__std_") {
-			if _, ok := ctx.structs.byName[string(sig.Ret)]; ok {
-				tmpPtr := ctx.ir.nextTmp()
-				b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
-				args := append([]string{fmt.Sprintf("ptr sret(%s) %s", retType, tmpPtr)}, argParts...)
-				b.WriteString(fmt.Sprintf("  call void @%s(%s)\n", ex.Callee, strings.Join(args, ", ")))
-				tmp := ctx.ir.nextTmp()
-				b.WriteString(fmt.Sprintf("  %s = load %s, ptr %s\n", tmp, retType, tmpPtr))
-				return b.String(), tmp, sig.Ret, true
-			}
-		}
-		tmp := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = call %s @%s(%s)\n", tmp, retType, ex.Callee, strings.Join(argParts, ", ")))
-		return b.String(), tmp, sig.Ret, true
-	case *ast.MatchExpr:
-		if ex.ResolvedType == ast.TypeInvalid {
-			return "", "", ast.TypeInvalid, false
-		}
-		code, subjVal, subjType, ok := emitExpr(ctx, ex.Subject, funcs)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		if _, ok := ctx.enums.enumTypes[string(subjType)]; !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		llvmType, ok := mapLLVMType(ex.ResolvedType, ctx.enums, ctx.structs, ctx.ifaces)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		mergeLabel := ctx.ir.nextLabel("match_expr_end")
-		defaultLabel := ctx.ir.nextLabel("match_expr_default")
-		grouped := groupMatchExprArmsLLVM(ex.Arms)
-		var b strings.Builder
-		subjLLVMType, ok := mapLLVMType(subjType, ctx.enums, ctx.structs, ctx.ifaces)
-		if !ok {
-			return "", "", ast.TypeInvalid, false
-		}
-		b.WriteString(code)
-		b.WriteString(fmt.Sprintf("  switch %s %s, label %%%s [\n", subjLLVMType, subjVal, defaultLabel))
-		caseLabels := make([]string, 0, len(grouped))
-		for _, g := range grouped {
-			lbl := ctx.ir.nextLabel("match_expr_arm")
-			caseLabels = append(caseLabels, lbl)
-			idx, ok := ctx.enums.variantIndex[g.Variant]
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			b.WriteString(fmt.Sprintf("    %s %d, label %%%s\n", subjLLVMType, idx, lbl))
-		}
-		b.WriteString("  ]\n")
-		phiVals := make([]string, 0, len(ex.Arms))
-		for i, g := range grouped {
-			b.WriteString(fmt.Sprintf("%s:\n", caseLabels[i]))
-			entries, ok := emitGuardedMatchExpr(&b, ctx, g.Arms, funcs, mergeLabel, ex.ResolvedType, caseLabels[i])
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
-			phiVals = append(phiVals, entries...)
-		}
-		b.WriteString(fmt.Sprintf("%s:\n", defaultLabel))
-		defVal := defaultLLVMValue(ex.ResolvedType, ctx.enums, ctx.structs, ctx.ifaces)
-		b.WriteString(fmt.Sprintf("  br label %%%s\n", mergeLabel))
-		phiVals = append(phiVals, fmt.Sprintf("[ %s, %%%s ]", defVal, defaultLabel))
-		b.WriteString(fmt.Sprintf("%s:\n", mergeLabel))
-		tmp := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = phi %s %s\n", tmp, llvmType, strings.Join(phiVals, ", ")))
-		return b.String(), tmp, ex.ResolvedType, true
-	default:
-		return "", "", ast.TypeInvalid, false
-	}
+func emitGuardedMatchTerminatorLLVM(b *strings.Builder, ctx *funcCtx, arms []mir.MatchTerminatorArm, defaultLabel string, funcs map[string]llvmFuncSig) bool {
+	return llvmGuardedMatchTerminatorPlan{
+		b:            b,
+		ctx:          ctx,
+		arms:         arms,
+		defaultLabel: defaultLabel,
+		funcs:        funcs,
+	}.emit()
 }
 
-func findReturnExpr(b *ast.BlockStmt) ast.Expr {
-	if b == nil {
-		return nil
-	}
-	for _, st := range b.Stmts {
-		if ret, ok := st.(*ast.ReturnStmt); ok {
-			return ret.Value
+func (p llvmGuardedMatchTerminatorPlan) emit() bool {
+	unguarded := -1
+	for i, arm := range p.arms {
+		if arm.Guard == nil {
+			unguarded = i
+			break
 		}
 	}
-	return nil
+	hasGuard := false
+	for _, arm := range p.arms {
+		if arm.Guard != nil {
+			hasGuard = true
+			break
+		}
+	}
+	if !hasGuard && unguarded >= 0 {
+		p.b.WriteString(fmt.Sprintf("  br label %%%s\n", cfgLabelLLVM(p.arms[unguarded].Target)))
+		return true
+	}
+	guarded := []int{}
+	for i, arm := range p.arms {
+		if arm.Guard != nil {
+			guarded = append(guarded, i)
+		}
+	}
+	for gi, idx := range guarded {
+		arm := p.arms[idx]
+		condCode, condVal, condType, ok := emitExprMIRLLVM(p.ctx, arm.Guard, p.funcs)
+		if !ok || condType != ast.TypeBool {
+			return false
+		}
+		condI1Code, condI1 := boolToI1(p.ctx, condVal)
+		nextLabel := p.defaultLabel
+		if gi < len(guarded)-1 {
+			nextLabel = p.ctx.ir.nextLabel("match_guard_next")
+		} else if unguarded >= 0 {
+			nextLabel = p.arms[unguarded].Target
+		}
+		p.b.WriteString(condCode)
+		p.b.WriteString(condI1Code)
+		p.b.WriteString(fmt.Sprintf("  br i1 %s, label %%%s, label %%%s\n", condI1, cfgLabelLLVM(arm.Target), cfgLabelLLVM(nextLabel)))
+		if gi < len(guarded)-1 {
+			p.b.WriteString(fmt.Sprintf("%s:\n", cfgLabelLLVM(nextLabel)))
+		}
+	}
+	return true
 }
 
-func mapLLVMType(t ast.Type, enums enumInfo, structs structPool, ifaces interfacePool) (string, bool) {
-	switch t {
-	case ast.TypeVoid:
-		return "void", true
-	case ast.TypeInt:
-		return "i64", true
-	case ast.TypeFloat:
-		return "double", true
-	case ast.TypeBool:
-		return "i8", true
-	case ast.TypeString:
-		return "ptr", true
-	case ast.TypeAny:
-		return "%Any", true
-	default:
-		if enums.enumTypes[string(t)] {
-			return "i64", true
-		}
-		if isGenericType(string(t)) {
-			return "", false
-		}
-		if _, ok := structs.byName[string(t)]; ok {
-			return "%" + string(t), true
-		}
-		if ifaces.names[string(t)] {
-			return "%" + string(t), true
-		}
-		return "", false
-	}
+func (e llvmABIEnv) runtimeType(t ast.Type) (string, bool) {
+	return intrinsics.MapLLVMRuntimeType(
+		t,
+		func(name string) bool { return e.enums.enumTypes[name] },
+		func(name string) bool {
+			_, ok := e.structs.byName[name]
+			return ok
+		},
+		func(name string) bool { return e.ifaces.names[name] },
+	)
 }
 
-func isGenericType(t string) bool {
-	open := strings.IndexRune(t, '[')
-	close := strings.LastIndex(t, "]")
-	return open > 0 && close > open
+func (e llvmABIEnv) defaultValue(t ast.Type) string {
+	return intrinsics.DefaultLLVMValue(
+		t,
+		func(name string) bool { return e.enums.enumTypes[name] },
+		func(name string) bool {
+			_, ok := e.structs.byName[name]
+			return ok
+		},
+		func(name string) bool { return e.ifaces.names[name] },
+	)
 }
 
-func splitGenericBase(t string) (string, bool) {
-	open := strings.IndexRune(t, '[')
-	if open <= 0 {
-		return "", false
-	}
-	return t[:open], true
+func (e llvmABIEnv) valueABI(t ast.Type) (intrinsics.LLVMValueABI, bool) {
+	return intrinsics.BuildLLVMValueABI(
+		t,
+		func(t ast.Type) (string, bool) { return e.runtimeType(t) },
+	)
 }
 
-func defaultLLVMValue(t ast.Type, enums enumInfo, structs structPool, ifaces interfacePool) string {
-	switch t {
-	case ast.TypeInt:
-		return "0"
-	case ast.TypeFloat:
-		return "0.0"
-	case ast.TypeBool:
-		return "0"
-	case ast.TypeString:
-		return "null"
-	case ast.TypeAny:
-		return "zeroinitializer"
-	default:
-		if enums.enumTypes[string(t)] {
-			return "0"
-		}
-		if _, ok := structs.byName[string(t)]; ok {
-			return "zeroinitializer"
-		}
-		if ifaces.names[string(t)] {
-			return "zeroinitializer"
-		}
-		return "0"
+func (e llvmABIEnv) valueABIOrError(t ast.Type, format string, args ...any) (intrinsics.LLVMValueABI, error) {
+	abi, ok := e.valueABI(t)
+	if ok {
+		return abi, nil
 	}
+	return intrinsics.LLVMValueABI{}, fmt.Errorf(format, args...)
+}
+
+func (e llvmABIEnv) storageABI(t ast.Type) (intrinsics.LLVMStorageABI, bool) {
+	return intrinsics.BuildLLVMStorageABI(
+		t,
+		func(t ast.Type) (string, bool) { return e.runtimeType(t) },
+		func(t ast.Type) string { return e.defaultValue(t) },
+	)
+}
+
+func (e llvmABIEnv) storageABIOrError(t ast.Type, format string, args ...any) (intrinsics.LLVMStorageABI, error) {
+	abi, ok := e.storageABI(t)
+	if ok {
+		return abi, nil
+	}
+	return intrinsics.LLVMStorageABI{}, fmt.Errorf(format, args...)
+}
+
+func (e llvmABIEnv) sortedNamedStorageABIs(types map[string]ast.Type) ([]intrinsics.LLVMNamedStorageABI, bool) {
+	return intrinsics.BuildLLVMSortedNamedStorageABIs(
+		types,
+		func(t ast.Type) (string, bool) { return e.runtimeType(t) },
+		func(t ast.Type) string { return e.defaultValue(t) },
+	)
+}
+
+func (e llvmABIEnv) sortedNamedStorageABIsOrError(fnName string, types map[string]ast.Type) ([]intrinsics.LLVMNamedStorageABI, error) {
+	abis, ok := e.sortedNamedStorageABIs(types)
+	if ok {
+		return abis, nil
+	}
+	for name, typ := range types {
+		if _, ok := e.storageABI(typ); !ok {
+			return nil, fmt.Errorf("llvm backend: unsupported local type '%s' for '%s.%s'", typ, fnName, name)
+		}
+	}
+	return nil, fmt.Errorf("llvm backend: unsupported local storage abi for '%s'", fnName)
+}
+
+func (e llvmABIEnv) functionABI(ret ast.Type, params []intrinsics.LLVMNamedType) (intrinsics.LLVMFunctionABI, bool) {
+	return intrinsics.BuildLLVMFunctionABI(
+		ret,
+		params,
+		func(t ast.Type) (string, bool) { return e.runtimeType(t) },
+	)
+}
+
+func (e llvmABIEnv) callABI(callee string, ret ast.Type) (intrinsics.LLVMCallABI, bool) {
+	return intrinsics.ClassifyLLVMCallABI(
+		callee,
+		ret,
+		func(t ast.Type) (string, bool) { return e.runtimeType(t) },
+		func(name string) bool {
+			_, ok := e.structs.byName[name]
+			return ok
+		},
+	)
+}
+
+func (e llvmABIEnv) callABIOrError(callee string, ret ast.Type) (intrinsics.LLVMCallABI, error) {
+	abi, ok := e.callABI(callee, ret)
+	if ok {
+		return abi, nil
+	}
+	return intrinsics.LLVMCallABI{}, fmt.Errorf("llvm backend: unsupported call abi for '%s' (%s)", callee, ret)
+}
+
+func (e llvmABIEnv) anyBoxClass(t ast.Type) (intrinsics.LLVMAnyBoxClass, bool) {
+	return intrinsics.ClassifyLLVMAnyBoxing(
+		t,
+		func(name string) bool { return e.enums.enumTypes[name] },
+		func(name string) bool {
+			_, ok := e.structs.byName[name]
+			return ok
+		},
+		func(name string) bool { return e.ifaces.names[name] },
+	)
+}
+
+func (e llvmABIEnv) anyHeapCopyType(t ast.Type) (string, bool) {
+	return intrinsics.MapLLVMAnyHeapCopyType(
+		t,
+		func(name string) bool { return e.enums.enumTypes[name] },
+		func(name string) bool {
+			_, ok := e.structs.byName[name]
+			return ok
+		},
+		func(name string) bool { return e.ifaces.names[name] },
+	)
+}
+
+func (e llvmABIEnv) functionABIOrError(fnName string, ret ast.Type, params []intrinsics.LLVMNamedType) (intrinsics.LLVMFunctionABI, error) {
+	abi, ok := e.functionABI(ret, params)
+	if ok {
+		return abi, nil
+	}
+	if _, ok := e.runtimeType(ret); !ok {
+		return intrinsics.LLVMFunctionABI{}, fmt.Errorf("llvm backend: unsupported return type '%s' for '%s'", ret, fnName)
+	}
+	for _, p := range params {
+		pt := normalizeLLVMType(p.Type)
+		if _, ok := e.runtimeType(pt); !ok {
+			return intrinsics.LLVMFunctionABI{}, fmt.Errorf("llvm backend: unsupported param type '%s' for '%s.%s'", pt, fnName, p.Name)
+		}
+	}
+	return intrinsics.LLVMFunctionABI{}, fmt.Errorf("llvm backend: unsupported function abi for '%s'", fnName)
+}
+
+func findStructNameBySuffix(pool structPool, sourceName string) (string, bool) {
+	if _, ok := pool.byName[sourceName]; ok {
+		return sourceName, true
+	}
+	suffix := "__" + sourceName
+	for name := range pool.byName {
+		if strings.HasSuffix(name, suffix) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func boolToI1(ctx *funcCtx, val string) (string, string) {
-	tmp := ctx.ir.nextTmp()
-	return fmt.Sprintf("  %s = icmp ne i8 %s, 0\n", tmp, val), tmp
+	return llvmBoolConvertPlan{ctx: ctx, value: val, target: "i1"}.emit()
 }
 
 func boolToI8(ctx *funcCtx, val string) (string, string) {
-	tmp := ctx.ir.nextTmp()
-	return fmt.Sprintf("  %s = zext i1 %s to i8\n", tmp, val), tmp
-}
-
-func isBuiltinVoidCall(name string) bool {
-	switch name {
-	case "print", "println":
-		return true
-	default:
-		return false
-	}
+	return llvmBoolConvertPlan{ctx: ctx, value: val, target: "i8"}.emit()
 }
 
 func stringPtr(ctx *funcCtx, value string) (string, string, bool) {
-	name, ok := ctx.strs.names[value]
+	return llvmStringPtrPlan{ctx: ctx, value: value}.emit()
+}
+
+func (p llvmBoolConvertPlan) emit() (string, string) {
+	tmp := p.ctx.ir.nextTmp()
+	if p.target == "i1" {
+		return fmt.Sprintf("  %s = icmp ne i8 %s, 0\n", tmp, p.value), tmp
+	}
+	return fmt.Sprintf("  %s = zext i1 %s to i8\n", tmp, p.value), tmp
+}
+
+func (p llvmStringPtrPlan) emit() (string, string, bool) {
+	name, ok := p.ctx.strs.names[p.value]
 	if !ok {
 		return "", "", false
 	}
-	length := len([]byte(value)) + 1
-	tmp := ctx.ir.nextTmp()
+	length := len([]byte(p.value)) + 1
+	tmp := p.ctx.ir.nextTmp()
 	code := fmt.Sprintf("  %s = %s\n", tmp, stringGEP(name, length))
 	return code, tmp, true
 }
 
 func boxToAny(ctx *funcCtx, value string, t ast.Type) (string, string, bool) {
-	tag := anyTagOther
+	class, ok := ctx.abi().anyBoxClass(t)
+	if !ok {
+		return "", "", false
+	}
 	var code strings.Builder
 	payload := value
 
-	switch {
-	case t == ast.TypeInt || ctx.enums.enumTypes[string(t)]:
-		tag = anyTagInt
+	switch class.Payload {
+	case intrinsics.LLVMAnyPayloadIntToPtr:
 		tmp := ctx.ir.nextTmp()
 		code.WriteString(fmt.Sprintf("  %s = inttoptr i64 %s to ptr\n", tmp, value))
 		payload = tmp
-	case t == ast.TypeBool:
-		tag = anyTagBool
+	case intrinsics.LLVMAnyPayloadBoolToPtr:
 		tmp := ctx.ir.nextTmp()
 		code.WriteString(fmt.Sprintf("  %s = zext i8 %s to i64\n", tmp, value))
 		tmp2 := ctx.ir.nextTmp()
 		code.WriteString(fmt.Sprintf("  %s = inttoptr i64 %s to ptr\n", tmp2, tmp))
 		payload = tmp2
-	case t == ast.TypeFloat:
-		tag = anyTagFloat
+	case intrinsics.LLVMAnyPayloadFloatBits:
 		tmp := ctx.ir.nextTmp()
 		code.WriteString(fmt.Sprintf("  %s = bitcast double %s to i64\n", tmp, value))
 		tmp2 := ctx.ir.nextTmp()
 		code.WriteString(fmt.Sprintf("  %s = inttoptr i64 %s to ptr\n", tmp2, tmp))
 		payload = tmp2
-	case t == ast.TypeString:
-		tag = anyTagString
-	case ctx.structs.byName[string(t)].Fields != nil || ctx.ifaces.names[string(t)]:
-		tag = anyTagOther
-		llvmType, ok := mapLLVMType(t, ctx.enums, ctx.structs, ctx.ifaces)
+	case intrinsics.LLVMAnyPayloadPtr:
+	case intrinsics.LLVMAnyPayloadHeapCopy:
+		llvmType, ok := ctx.abi().anyHeapCopyType(t)
 		if !ok {
 			return "", "", false
 		}
@@ -2609,96 +3185,123 @@ func boxToAny(ctx *funcCtx, value string, t ast.Type) (string, string, bool) {
 
 	tmp0 := ctx.ir.nextTmp()
 	tmp1 := ctx.ir.nextTmp()
-	code.WriteString(fmt.Sprintf("  %s = insertvalue %%Any undef, i64 %d, 0\n", tmp0, tag))
+	code.WriteString(fmt.Sprintf("  %s = insertvalue %%Any undef, i64 %d, 0\n", tmp0, class.Tag))
 	code.WriteString(fmt.Sprintf("  %s = insertvalue %%Any %s, ptr %s, 1\n", tmp1, tmp0, payload))
 	return code.String(), tmp1, true
 }
 
-func emitBuiltinCall(ctx *funcCtx, call *ast.CallExpr, funcs map[string]llvmFuncSig) (string, bool) {
-	if len(call.Args) != 1 {
-		return "", false
+func emitLoweredBuiltinExprMIR(ctx *funcCtx, funcName string, args []mir.Expr, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
+	spec, ok := intrinsics.LookupLoweredBuiltin(funcName)
+	if !ok || len(args) != spec.Arity {
+		return "", "", ast.TypeInvalid, false
 	}
-	argCode, argVal, argType, ok := emitExpr(ctx, call.Args[0], funcs)
-	if !ok {
-		return "", false
-	}
-	isPrintln := call.Callee == "println"
-	var fmtLit string
-	switch {
-	case argType == ast.TypeInt || ctx.enums.enumTypes[string(argType)]:
-		if isPrintln {
-			fmtLit = "%ld\n"
-		} else {
-			fmtLit = "%ld"
-		}
-		fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-		if !ok {
-			return "", false
-		}
-		return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, i64 %s)\n", fmtPtr, argVal), true
-	case argType == ast.TypeFloat:
-		if isPrintln {
-			fmtLit = "%g\n"
-		} else {
-			fmtLit = "%g"
-		}
-		fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-		if !ok {
-			return "", false
-		}
-		return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, double %s)\n", fmtPtr, argVal), true
-	case argType == ast.TypeBool:
-		if isPrintln {
-			fmtLit = "%s\n"
-		} else {
-			fmtLit = "%s"
-		}
-		fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-		if !ok {
-			return "", false
-		}
-		trueCode, truePtr, ok := stringPtr(ctx, "true")
-		if !ok {
-			return "", false
-		}
-		falseCode, falsePtr, ok := stringPtr(ctx, "false")
-		if !ok {
-			return "", false
+	switch spec.Category {
+	case intrinsics.LoweredBuiltinLen:
+		code, val, t, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
 		}
 		tmp := ctx.ir.nextTmp()
-		condCode, cond := boolToI1(ctx, argVal)
-		code := argCode + fmtCode + trueCode + falseCode + condCode
-		code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, cond, truePtr, falsePtr)
-		code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
-		return code, true
-	case argType == ast.TypeString:
-		if isPrintln {
-			fmtLit = "%s\n"
-		} else {
-			fmtLit = "%s"
-		}
-		fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-		if !ok {
-			return "", false
-		}
-		return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, argVal), true
-	case argType == ast.TypeAny:
-		if isPrintln {
-			fmtLit = "%s\n"
-		} else {
-			fmtLit = "%s"
-		}
-		fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-		if !ok {
-			return "", false
+		code += fmt.Sprintf("  %s = call i64 @%s(ptr %s)\n", tmp, spec.LLVMTarget, val)
+		return code, tmp, spec.ReturnType, true
+	case intrinsics.LoweredBuiltinStringUnary:
+		code, val, t, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
 		}
 		tmp := ctx.ir.nextTmp()
-		code := argCode + fmtCode
-		code += fmt.Sprintf("  %s = call ptr @bazic_any_to_str(%%Any %s)\n", tmp, argVal)
-		code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
-		return code, true
+		code += fmt.Sprintf("  %s = call ptr @%s(ptr %s)\n", tmp, spec.LLVMTarget, val)
+		return code, tmp, spec.ReturnType, true
+	case intrinsics.LoweredBuiltinStringBinaryPredicate:
+		c1, v1, t1, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t1 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		c2, v2, t2, ok := emitExprMIRLLVM(ctx, args[1], funcs)
+		if !ok || t2 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		tmp := ctx.ir.nextTmp()
+		code := c1 + c2 + fmt.Sprintf("  %s = call i8 @%s(ptr %s, ptr %s)\n", tmp, spec.LLVMTarget, v1, v2)
+		return code, tmp, spec.ReturnType, true
+	case intrinsics.LoweredBuiltinStringTernary:
+		c1, v1, t1, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t1 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		c2, v2, t2, ok := emitExprMIRLLVM(ctx, args[1], funcs)
+		if !ok || t2 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		c3, v3, t3, ok := emitExprMIRLLVM(ctx, args[2], funcs)
+		if !ok || t3 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		tmp := ctx.ir.nextTmp()
+		code := c1 + c2 + c3 + fmt.Sprintf("  %s = call ptr @%s(ptr %s, ptr %s, ptr %s)\n", tmp, spec.LLVMTarget, v1, v2, v3)
+		return code, tmp, spec.ReturnType, true
+	case intrinsics.LoweredBuiltinStringRepeat:
+		c1, v1, t1, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t1 != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		c2, v2, t2, ok := emitExprMIRLLVM(ctx, args[1], funcs)
+		if !ok || t2 != ast.TypeInt {
+			return "", "", ast.TypeInvalid, false
+		}
+		tmp := ctx.ir.nextTmp()
+		code := c1 + c2 + fmt.Sprintf("  %s = call ptr @%s(ptr %s, i64 %s)\n", tmp, spec.LLVMTarget, v1, v2)
+		return code, tmp, spec.ReturnType, true
+	case intrinsics.LoweredBuiltinStringify:
+		c1, v1, t1, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		if t1 == ast.TypeString {
+			return c1, v1, ast.TypeString, true
+		}
+		if t1 == ast.TypeBool {
+			trueCode, truePtr, ok := stringPtr(ctx, "true")
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			falseCode, falsePtr, ok := stringPtr(ctx, "false")
+			if !ok {
+				return "", "", ast.TypeInvalid, false
+			}
+			tmp := ctx.ir.nextTmp()
+			condCode, cond := boolToI1(ctx, v1)
+			code := c1 + trueCode + falseCode + condCode
+			code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, cond, truePtr, falsePtr)
+			return code, tmp, ast.TypeString, true
+		}
+		if t1 == ast.TypeInt || ctx.enums.enumTypes[string(t1)] {
+			tmp := ctx.ir.nextTmp()
+			code := c1 + fmt.Sprintf("  %s = call ptr @%s(i64 %s)\n", tmp, intrinsics.LLVMRuntimeIntToStrFunc, v1)
+			return code, tmp, ast.TypeString, true
+		}
+		if t1 == ast.TypeFloat {
+			tmp := ctx.ir.nextTmp()
+			code := c1 + fmt.Sprintf("  %s = call ptr @%s(double %s)\n", tmp, intrinsics.LLVMRuntimeFloatToStrFunc, v1)
+			return code, tmp, ast.TypeString, true
+		}
+		if t1 == ast.TypeAny {
+			tmp := ctx.ir.nextTmp()
+			code := c1 + fmt.Sprintf("  %s = call ptr @%s(%%Any %s)\n", tmp, intrinsics.LLVMRuntimeAnyToStrFunc, v1)
+			return code, tmp, ast.TypeString, true
+		}
+		return "", "", ast.TypeInvalid, false
+	case intrinsics.LoweredBuiltinParseString:
+		code, val, t, ok := emitExprMIRLLVM(ctx, args[0], funcs)
+		if !ok || t != ast.TypeString {
+			return "", "", ast.TypeInvalid, false
+		}
+		tmp := ctx.ir.nextTmp()
+		typeName := intrinsics.LLVMResultStructName(spec.ParseKind, "Error")
+		code += fmt.Sprintf("  %s = call %%%s @%s(ptr %s)\n", tmp, typeName, spec.LLVMTarget, val)
+		return code, tmp, ast.Type(typeName), true
 	default:
-		return "", false
+		return "", "", ast.TypeInvalid, false
 	}
 }
 
@@ -2770,4 +3373,8 @@ func mapFloatCmpOp(op string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func normalizeLLVMType(t ast.Type) ast.Type {
+	return intrinsics.NormalizeLLVMType(t)
 }

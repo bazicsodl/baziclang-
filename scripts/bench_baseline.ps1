@@ -37,9 +37,13 @@ function Run-Bench($backend, $name, $path, $iters) {
     $lastFailure = $null
     for ($i = 0; $i -lt $iters; $i++) {
         $output = & $bazcBin run $path --backend $backend 2>&1
-        $timeMs = $output | Select-Object -First 1
-        if ($timeMs -match '^[0-9]+$') {
-            $val = [int]$timeMs
+        $exitCode = $LASTEXITCODE
+        $timeMs = $null
+        if ($exitCode -eq 0) {
+            $timeMs = $output | Where-Object { "$_" -match '^[0-9]+$' } | Select-Object -First 1
+        }
+        if ($timeMs) {
+            $val = [int]"$timeMs"
             if ($best -lt 0 -or $val -lt $best) { $best = $val }
             continue
         }

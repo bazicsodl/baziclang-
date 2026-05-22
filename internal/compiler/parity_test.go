@@ -5,7 +5,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+)
+
+var (
+	parityPkgSyncOnce sync.Once
+	parityPkgSyncErr  error
 )
 
 func TestStdParityGoVsLLVM_JSON(t *testing.T) {
@@ -294,6 +300,21 @@ func runBazic(file string, backend string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	parityPkgSyncOnce.Do(func() {
+		cmd := exec.Command("go", "run", "./cmd/bazc", "pkg", "sync")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "BAZIC_HOME="+root)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			if len(out) > 0 {
+				parityPkgSyncErr = &paritySyncError{msg: strings.TrimSpace(string(out))}
+				return
+			}
+			parityPkgSyncErr = err
+		}
+	})
+	if parityPkgSyncErr != nil {
+		return "", parityPkgSyncErr
+	}
 	args := []string{"run", file, "--backend", backend}
 	cmd := exec.Command("go", append([]string{"run", "./cmd/bazc"}, args...)...)
 	cmd.Dir = root
@@ -303,4 +324,12 @@ func runBazic(file string, backend string) (string, error) {
 		return string(out), err
 	}
 	return string(out), nil
+}
+
+type paritySyncError struct {
+	msg string
+}
+
+func (e *paritySyncError) Error() string {
+	return e.msg
 }

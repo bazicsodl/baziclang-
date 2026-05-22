@@ -23,8 +23,12 @@ function Run-Bench($backend) {
     Write-Host "== Backend: $backend =="
     foreach ($b in $benchFiles) {
         $output = & go run ./cmd/bazc run $b.Path --backend $backend 2>$null
-        $timeMs = $output | Select-Object -First 1
-        if ($timeMs -match '^[0-9]+$') {
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ("{0,-18} {1}" -f $b.Name, "error")
+            continue
+        }
+        $timeMs = $output | Where-Object { "$_" -match '^[0-9]+$' } | Select-Object -First 1
+        if ($timeMs) {
             Write-Host ("{0,-18} {1,8} ms" -f $b.Name, $timeMs)
         } else {
             Write-Host ("{0,-18} {1}" -f $b.Name, "error")
