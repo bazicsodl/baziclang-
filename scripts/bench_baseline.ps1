@@ -4,6 +4,10 @@ param(
 )
 
 $platformKey = $Platform.ToLowerInvariant()
+$scriptPath = $MyInvocation.MyCommand.Path
+$rootDir = Split-Path -Parent $scriptPath
+$rootDir = Split-Path -Parent $rootDir
+$env:BAZIC_HOME = $rootDir
 
 $benchFiles = @(
     @{ Name = "string_concat"; Path = (Join-Path "bench" "string_concat.bz") },
@@ -30,13 +34,23 @@ if ($LASTEXITCODE -ne 0) {
 
 function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
+    $lastFailure = $null
     for ($i = 0; $i -lt $iters; $i++) {
-        $output = & $bazcBin run $path --backend $backend 2>$null
+        $output = & $bazcBin run $path --backend $backend 2>&1
         $timeMs = $output | Select-Object -First 1
         if ($timeMs -match '^[0-9]+$') {
             $val = [int]$timeMs
             if ($best -lt 0 -or $val -lt $best) { $best = $val }
+            continue
         }
+        $rendered = (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+        if (-not $rendered) {
+            $rendered = "no output"
+        }
+        $lastFailure = $rendered
+    }
+    if ($best -lt 0) {
+        throw ("benchmark '{0}' failed for backend '{1}': {2}" -f $name, $backend, $lastFailure)
     }
     return $best
 }

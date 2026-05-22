@@ -20,6 +20,9 @@ on:
         required: false
         default: "false"
 
+env:
+  BAZIC_HOME: ${{ github.workspace }}
+
 jobs:
   quality-gates:
     runs-on: ubuntu-latest

@@ -295,8 +295,9 @@ func runBazic(file string, backend string) (string, error) {
 		return "", err
 	}
 	args := []string{"run", file, "--backend", backend}
-	cmd := exec.Command("go", append([]string{"run", ".\\cmd\\bazc\\"}, args...)...)
+	cmd := exec.Command("go", append([]string{"run", "./cmd/bazc"}, args...)...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "BAZIC_HOME="+root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), err
