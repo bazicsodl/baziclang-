@@ -118,6 +118,10 @@ func IsLLVMResultStructReturn(ret ast.Type, hasStruct func(string) bool) bool {
 	return strings.HasPrefix(name, "Result__") && hasStruct(name)
 }
 
+func usesLLVMIntrinsicScalarBoolABI(callee string, t ast.Type) bool {
+	return strings.HasPrefix(callee, "__std_") && NormalizeLLVMType(t) == ast.TypeBool
+}
+
 func usesLLVMIntrinsicRegisterResult(ret ast.Type) bool {
 	if NormalizeLLVMType(ret) != ast.Type(LLVMResultStructName("bool", "Error")) {
 		return false
@@ -160,8 +164,33 @@ func mapLLVMCallReturnType(callee string, ret ast.Type, mapType func(ast.Type) (
 		if llvmType, ok := llvmIntrinsicRegisterResultType(normalizedRet); ok {
 			return llvmType, true
 		}
+		if usesLLVMIntrinsicScalarBoolABI(callee, normalizedRet) {
+			return "i1", true
+		}
 	}
 	return mapType(normalizedRet)
+}
+
+func MapLLVMCallParamType(callee string, t ast.Type, mapType func(ast.Type) (string, bool), hasStruct func(string) bool) (string, bool) {
+	normalized := NormalizeLLVMType(t)
+	if usesLLVMIntrinsicScalarBoolABI(callee, normalized) {
+		return MapLLVMCABIType(normalized, hasStruct)
+	}
+	return mapType(normalized)
+}
+
+func LLVMCallParamAttrs(callee string, t ast.Type) string {
+	if usesLLVMIntrinsicScalarBoolABI(callee, t) {
+		return " zeroext"
+	}
+	return ""
+}
+
+func LLVMCallRetPrefix(callee string, t ast.Type) string {
+	if usesLLVMIntrinsicScalarBoolABI(callee, t) {
+		return "zeroext "
+	}
+	return ""
 }
 
 func ClassifyLLVMCallABI(callee string, ret ast.Type, mapType func(ast.Type) (string, bool), hasStruct func(string) bool) (LLVMCallABI, bool) {
@@ -285,6 +314,26 @@ func MapLLVMDeclType(t ast.Type, hasStruct func(string) bool) (string, bool) {
 	}
 }
 
+func MapLLVMCABIType(t ast.Type, hasStruct func(string) bool) (string, bool) {
+	switch normalized := NormalizeLLVMType(t); normalized {
+	case ast.TypeVoid:
+		return "void", true
+	case ast.TypeBool:
+		return "i1", true
+	case ast.TypeInt:
+		return "i64", true
+	case ast.TypeFloat:
+		return "double", true
+	case ast.TypeString:
+		return "ptr", true
+	default:
+		if hasStruct(string(normalized)) {
+			return "%" + string(normalized), true
+		}
+		return "", false
+	}
+}
+
 func MapLLVMRuntimeType(t ast.Type, isEnum func(string) bool, hasStruct func(string) bool, hasIface func(string) bool) (string, bool) {
 	switch normalized := NormalizeLLVMType(t); normalized {
 	case ast.TypeVoid:
@@ -382,11 +431,11 @@ func FormatLLVMIntrinsicDecl(fn FunctionSpec, mapType func(ast.Type) (string, bo
 	if ClassifyLLVMCallConvention(fn.Name, fn.Ret, hasStruct) == LLVMCallSRet {
 		params = append(params, fmt.Sprintf("ptr sret(%%%s)", fn.Ret))
 		for _, p := range fn.Params {
-			llvmParam, ok := mapType(p)
+			llvmParam, ok := MapLLVMCallParamType(fn.Name, p, mapType, hasStruct)
 			if !ok {
 				return "", false
 			}
-			params = append(params, llvmParam)
+			params = append(params, llvmParam+LLVMCallParamAttrs(fn.Name, p))
 		}
 		return fmt.Sprintf("declare void @%s(%s)\n", fn.Name, strings.Join(params, ", ")), true
 	}
@@ -395,13 +444,13 @@ func FormatLLVMIntrinsicDecl(fn FunctionSpec, mapType func(ast.Type) (string, bo
 		return "", false
 	}
 	for _, p := range fn.Params {
-		llvmParam, ok := mapType(p)
+		llvmParam, ok := MapLLVMCallParamType(fn.Name, p, mapType, hasStruct)
 		if !ok {
 			return "", false
 		}
-		params = append(params, llvmParam)
+		params = append(params, llvmParam+LLVMCallParamAttrs(fn.Name, p))
 	}
-	return fmt.Sprintf("declare %s @%s(%s)\n", llvmRet, fn.Name, strings.Join(params, ", ")), true
+	return fmt.Sprintf("declare %s%s @%s(%s)\n", LLVMCallRetPrefix(fn.Name, fn.Ret), llvmRet, fn.Name, strings.Join(params, ", ")), true
 }
 
 func FormatLLVMStdDecls(typeAliases map[string]ast.Type, hasStruct func(string) bool) string {
@@ -417,7 +466,7 @@ func FormatLLVMStdDecls(typeAliases map[string]ast.Type, hasStruct func(string) 
 				Ret:    NormalizeLLVMType(fn.Ret),
 			},
 			func(t ast.Type) (string, bool) {
-				return MapLLVMDeclType(t, hasStruct)
+				return MapLLVMCABIType(t, hasStruct)
 			},
 			hasStruct,
 		); ok {

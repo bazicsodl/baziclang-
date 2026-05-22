@@ -2399,8 +2399,22 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 		}
 		code += coerceCode
 		value = coerced
+		paramLLVMType, ok := intrinsics.MapLLVMCallParamType(st.Func, sig.Params[i], func(t ast.Type) (string, bool) {
+			return ctx.abi().runtimeType(t)
+		}, func(name string) bool {
+			_, ok := ctx.structs.byName[name]
+			return ok
+		})
+		if !ok {
+			return "", "", ast.TypeInvalid, false
+		}
+		if paramLLVMType == "i1" && argABI.LLVMType == "i8" {
+			i1Code, i1Value := boolToI1(ctx, value)
+			code += i1Code
+			value = i1Value
+		}
 		b.WriteString(code)
-		argParts = append(argParts, fmt.Sprintf("%s %s", argABI.LLVMType, value))
+		argParts = append(argParts, fmt.Sprintf("%s%s %s", paramLLVMType, intrinsics.LLVMCallParamAttrs(st.Func, sig.Params[i]), value))
 	}
 	abi, err := ctx.abi().callABIOrError(st.Func, sig.Ret)
 	if err != nil {
@@ -2429,7 +2443,12 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			return "", "", ast.TypeInvalid, false
 		}
 		tmp := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = call %s @%s(%s)\n", tmp, retType, st.Func, strings.Join(argParts, ", ")))
+		b.WriteString(fmt.Sprintf("  %s = call %s%s @%s(%s)\n", tmp, intrinsics.LLVMCallRetPrefix(st.Func, ret), retType, st.Func, strings.Join(argParts, ", ")))
+		if ret == ast.TypeBool && retType == "i1" && valueABI.LLVMType == "i8" {
+			tmp8 := ctx.ir.nextTmp()
+			b.WriteString(fmt.Sprintf("  %s = zext i1 %s to i8\n", tmp8, tmp))
+			return b.String(), tmp8, ret, true
+		}
 		if retType == valueABI.LLVMType {
 			return b.String(), tmp, ret, true
 		}

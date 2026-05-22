@@ -325,12 +325,12 @@ func TestFormatLLVMIntrinsicDeclKeepsPlainReturnsForNonStructResults(t *testing.
 	spec := FunctionSpec{
 		Name:   "__std_exists",
 		Ret:    ast.TypeBool,
-		Params: []ast.Type{ast.TypeString},
+		Params: []ast.Type{ast.TypeString, ast.TypeBool},
 	}
 	mapType := func(t ast.Type) (string, bool) {
 		switch t {
 		case ast.TypeBool:
-			return "i8", true
+			return "i1", true
 		case ast.TypeString:
 			return "ptr", true
 		default:
@@ -341,7 +341,7 @@ func TestFormatLLVMIntrinsicDeclKeepsPlainReturnsForNonStructResults(t *testing.
 	if !ok {
 		t.Fatalf("expected declaration formatting to succeed")
 	}
-	if decl != "declare i8 @__std_exists(ptr)\n" {
+	if decl != "declare zeroext i1 @__std_exists(ptr, i1 zeroext)\n" {
 		t.Fatalf("unexpected plain intrinsic declaration: %q", decl)
 	}
 }
@@ -401,6 +401,31 @@ func TestMapLLVMDeclTypeTracksSharedNativeDeclTypes(t *testing.T) {
 		got, ok := MapLLVMDeclType(tc.typ, hasStruct)
 		if ok != tc.ok || got != tc.want {
 			t.Fatalf("MapLLVMDeclType(%q) = (%q, %v), want (%q, %v)", tc.typ, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestMapLLVMCABITypeTracksScalarBoolSeparately(t *testing.T) {
+	hasStruct := func(name string) bool {
+		return name == "Result__string__Error"
+	}
+	tests := []struct {
+		typ  ast.Type
+		want string
+		ok   bool
+	}{
+		{typ: ast.TypeVoid, want: "void", ok: true},
+		{typ: ast.TypeBool, want: "i1", ok: true},
+		{typ: ast.TypeInt, want: "i64", ok: true},
+		{typ: ast.TypeFloat, want: "double", ok: true},
+		{typ: ast.TypeString, want: "ptr", ok: true},
+		{typ: ast.Type("Result__string__Error"), want: "%Result__string__Error", ok: true},
+		{typ: ast.Type("Missing"), want: "", ok: false},
+	}
+	for _, tc := range tests {
+		got, ok := MapLLVMCABIType(tc.typ, hasStruct)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("MapLLVMCABIType(%q) = (%q, %v), want (%q, %v)", tc.typ, got, ok, tc.want, tc.ok)
 		}
 	}
 }
@@ -514,9 +539,12 @@ func TestFormatLLVMStdDeclsUsesAliasesAndAvailableStructs(t *testing.T) {
 	if strings.Contains(out, "__std_json_get_float") {
 		t.Fatalf("did not expect float result intrinsic decl without matching result struct:\n%s", out)
 	}
-	expectedHTTP := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i8, ptr)\n"
+	expectedHTTP := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
 	if !strings.Contains(out, expectedHTTP) {
 		t.Fatalf("expected HttpResponse result decl using aliased internal type name:\n%s", out)
+	}
+	if !strings.Contains(out, "declare zeroext i1 @__std_json_validate(ptr)\n") {
+		t.Fatalf("expected scalar bool std decl to use c abi bool:\n%s", out)
 	}
 	if !strings.Contains(out, "declare void @__bazic_set_args(i32, ptr)\n") {
 		t.Fatalf("expected argv bridge decl in std decls:\n%s", out)

@@ -643,9 +643,12 @@ func TestEmitStdDeclsUsesIntrinsicRegistryAndAvailableResultStructs(t *testing.T
 	if strings.Contains(out, "__std_json_get_float") {
 		t.Fatalf("did not expect float result intrinsic decl without matching result struct:\n%s", out)
 	}
-	expectedHttpRespDecl := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i8, ptr)\n"
+	expectedHttpRespDecl := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
 	if !strings.Contains(out, expectedHttpRespDecl) {
 		t.Fatalf("expected HttpResponse result decl using internal type name:\n%s", out)
+	}
+	if !strings.Contains(out, "declare zeroext i1 @__std_json_validate(ptr)\n") {
+		t.Fatalf("expected scalar bool std decl to use c abi bool:\n%s", out)
 	}
 	if !strings.Contains(out, "declare ptr @__std_args()\n") {
 		t.Fatalf("expected plain pointer-return intrinsic decl in generated std decls:\n%s", out)
