@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -290,7 +291,7 @@ func Verify(root string) error {
 		if err != nil {
 			return err
 		}
-		if locked.Provenance.SourcePath != "" && filepath.Clean(locked.Provenance.SourcePath) != filepath.Clean(src) {
+		if locked.Provenance.SourcePath != "" && !sourcePathsEquivalent(locked.Provenance.SourcePath, src) {
 			return fmt.Errorf("source path mismatch for package '%s': manifest '%s' vs lock '%s'; run 'bazc pkg sync'", alias, src, locked.Provenance.SourcePath)
 		}
 		if locked.Provenance.SourceKind == "local_path" {
@@ -307,6 +308,53 @@ func Verify(root string) error {
 		}
 	}
 	return nil
+}
+
+func sourcePathsEquivalent(a, b string) bool {
+	return canonicalSourcePathKey(a) == canonicalSourcePathKey(b)
+}
+
+func canonicalSourcePathKey(src string) string {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return ""
+	}
+	if eval, err := filepath.EvalSymlinks(src); err == nil && eval != "" {
+		src = eval
+	}
+	src = strings.ReplaceAll(src, "\\", "/")
+	src = path.Clean(src)
+	if len(src) >= 3 && isASCIILetter(src[0]) && src[1] == ':' && src[2] == '/' {
+		return "/" + strings.ToLower(src[:1]) + "/" + strings.ToLower(src[3:])
+	}
+	if drive, rest, ok := splitWSLMountPath(src); ok {
+		if rest == "" {
+			return "/" + drive
+		}
+		return "/" + drive + "/" + strings.ToLower(rest)
+	}
+	return src
+}
+
+func splitWSLMountPath(src string) (drive string, rest string, ok bool) {
+	if len(src) < len("/mnt/x") || !strings.HasPrefix(src, "/mnt/") {
+		return "", "", false
+	}
+	driveByte := src[len("/mnt/")]
+	if !isASCIILetter(driveByte) {
+		return "", "", false
+	}
+	if len(src) == len("/mnt/x") {
+		return strings.ToLower(string(driveByte)), "", true
+	}
+	if src[len("/mnt/x")] != '/' {
+		return "", "", false
+	}
+	return strings.ToLower(string(driveByte)), src[len("/mnt/x/"):], true
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func normalizeImportTarget(path string) (string, error) {

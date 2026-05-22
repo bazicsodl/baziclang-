@@ -184,6 +184,22 @@ func TestVerifyDetectsSourcePathMismatch(t *testing.T) {
 	}
 }
 
+func TestSourcePathsEquivalentWindowsAndWSL(t *testing.T) {
+	windowsPath := `C:\Users\Ipeh\Documents\baziclang\std`
+	wslPath := `/mnt/c/Users/Ipeh/Documents/baziclang/std`
+	if !sourcePathsEquivalent(windowsPath, wslPath) {
+		t.Fatalf("expected equivalent paths: %q vs %q", windowsPath, wslPath)
+	}
+}
+
+func TestSourcePathsEquivalentRejectsDifferentRoots(t *testing.T) {
+	a := `C:\Users\Ipeh\Documents\baziclang\std`
+	b := `/mnt/d/Users/Ipeh/Documents/baziclang/std`
+	if sourcePathsEquivalent(a, b) {
+		t.Fatalf("expected different paths to compare unequal: %q vs %q", a, b)
+	}
+}
+
 func TestVerifyDetectsSourceDriftWithoutSync(t *testing.T) {
 	root := t.TempDir()
 	depRoot := t.TempDir()
