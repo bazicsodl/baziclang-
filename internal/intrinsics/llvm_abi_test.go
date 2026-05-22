@@ -1,6 +1,7 @@
 package intrinsics
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -48,8 +49,10 @@ func TestUsesLLVMIntrinsicSRetOnlyForStdIntrinsicsReturningResultStructs(t *test
 	hasStruct := func(name string) bool {
 		return name == "Result__bool__Error"
 	}
-	if !UsesLLVMIntrinsicSRet("__std_write_file", ast.Type("Result__bool__Error"), hasStruct) {
-		t.Fatalf("expected std intrinsic result struct return to use sret")
+	gotSRet := UsesLLVMIntrinsicSRet("__std_write_file", ast.Type("Result__bool__Error"), hasStruct)
+	wantSRet := runtime.GOOS == "windows"
+	if gotSRet != wantSRet {
+		t.Fatalf("UsesLLVMIntrinsicSRet(bool result) = %v, want %v on %s", gotSRet, wantSRet, runtime.GOOS)
 	}
 	if UsesLLVMIntrinsicSRet("write_file", ast.Type("Result__bool__Error"), hasStruct) {
 		t.Fatalf("did not expect non-intrinsic call to use sret")
@@ -66,8 +69,12 @@ func TestClassifyLLVMCallConventionTracksVoidValueAndSRet(t *testing.T) {
 	if got := ClassifyLLVMCallConvention("print", ast.TypeVoid, hasStruct); got != LLVMCallVoid {
 		t.Fatalf("expected void llvm call convention, got %q", got)
 	}
-	if got := ClassifyLLVMCallConvention("__std_write_file", ast.Type("Result__bool__Error"), hasStruct); got != LLVMCallSRet {
-		t.Fatalf("expected sret llvm call convention, got %q", got)
+	want := LLVMCallValue
+	if runtime.GOOS == "windows" {
+		want = LLVMCallSRet
+	}
+	if got := ClassifyLLVMCallConvention("__std_write_file", ast.Type("Result__bool__Error"), hasStruct); got != want {
+		t.Fatalf("unexpected llvm call convention for bool result on %s: got %q want %q", runtime.GOOS, got, want)
 	}
 	if got := ClassifyLLVMCallConvention("len", ast.TypeInt, hasStruct); got != LLVMCallValue {
 		t.Fatalf("expected value llvm call convention, got %q", got)
@@ -76,7 +83,7 @@ func TestClassifyLLVMCallConventionTracksVoidValueAndSRet(t *testing.T) {
 
 func TestClassifyLLVMCallABITracksNormalizedReturnTypeAndConvention(t *testing.T) {
 	hasStruct := func(name string) bool {
-		return name == "Result__string__Error"
+		return name == "Result__string__Error" || name == "Result__bool__Error"
 	}
 	mapType := func(t ast.Type) (string, bool) {
 		switch t {
@@ -84,6 +91,8 @@ func TestClassifyLLVMCallABITracksNormalizedReturnTypeAndConvention(t *testing.T
 			return "void", true
 		case ast.TypeInt:
 			return "i64", true
+		case ast.Type("Result__bool__Error"):
+			return "%Result__bool__Error", true
 		case ast.Type("Result__string__Error"):
 			return "%Result__string__Error", true
 		default:
@@ -96,6 +105,17 @@ func TestClassifyLLVMCallABITracksNormalizedReturnTypeAndConvention(t *testing.T
 	}
 	if abi.Convention != LLVMCallSRet || abi.NormalizedRet != ast.Type("Result__string__Error") || abi.LLVMRetType != "%Result__string__Error" {
 		t.Fatalf("unexpected llvm call abi: %+v", abi)
+	}
+	abi, ok = ClassifyLLVMCallABI("__std_write_file", ast.Type("Result[bool,Error]"), mapType, hasStruct)
+	if !ok {
+		t.Fatalf("expected compact bool call abi classification to succeed")
+	}
+	wantBoolConvention := LLVMCallValue
+	if runtime.GOOS == "windows" {
+		wantBoolConvention = LLVMCallSRet
+	}
+	if abi.Convention != wantBoolConvention || abi.NormalizedRet != ast.Type("Result__bool__Error") || abi.LLVMRetType != "%Result__bool__Error" {
+		t.Fatalf("unexpected compact bool llvm call abi: %+v", abi)
 	}
 	abi, ok = ClassifyLLVMCallABI("len", ast.TypeInt, mapType, hasStruct)
 	if !ok {

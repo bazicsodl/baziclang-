@@ -2,6 +2,7 @@ package intrinsics
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -117,8 +118,17 @@ func IsLLVMResultStructReturn(ret ast.Type, hasStruct func(string) bool) bool {
 	return strings.HasPrefix(name, "Result__") && hasStruct(name)
 }
 
+func usesLLVMIntrinsicRegisterResult(ret ast.Type) bool {
+	if NormalizeLLVMType(ret) != ast.Type(LLVMResultStructName("bool", "Error")) {
+		return false
+	}
+	return runtime.GOOS != "windows"
+}
+
 func UsesLLVMIntrinsicSRet(callee string, ret ast.Type, hasStruct func(string) bool) bool {
-	return strings.HasPrefix(callee, "__std_") && IsLLVMResultStructReturn(ret, hasStruct)
+	return strings.HasPrefix(callee, "__std_") &&
+		IsLLVMResultStructReturn(ret, hasStruct) &&
+		!usesLLVMIntrinsicRegisterResult(ret)
 }
 
 func ClassifyLLVMCallConvention(callee string, ret ast.Type, hasStruct func(string) bool) LLVMCallConvention {
