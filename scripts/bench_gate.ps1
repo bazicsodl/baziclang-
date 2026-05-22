@@ -17,18 +17,55 @@ $rootDir = Split-Path -Parent $rootDir
 $env:BAZIC_HOME = $rootDir
 $benchDir = Join-Path $rootDir "bench"
 
+$isWindowsHost = $false
+if ($null -ne $IsWindows) {
+    $isWindowsHost = [bool]$IsWindows
+} elseif ($env:OS) {
+    $isWindowsHost = $env:OS.ToLowerInvariant().Contains("windows")
+}
+$bazcName = if ($isWindowsHost) { "bazc-bench.exe" } else { "bazc-bench" }
+$bazcBin = Join-Path ([System.IO.Path]::GetTempPath()) $bazcName
+$buildOutput = & go build -buildvcs=false -o $bazcBin ./cmd/bazc 2>&1
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bazcBin)) {
+    $rendered = (($buildOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+    if (-not $rendered) {
+        $rendered = "no output"
+    }
+    throw ("failed to build bench gate compiler binary: {0}" -f $rendered)
+}
+& $bazcBin pkg sync 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "failed to sync packages for bench gate"
+}
+
 function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
+    $lastFailure = $null
     for ($i = 0; $i -lt $iters; $i++) {
-        $output = & go run ./cmd/bazc run --backend $backend $path 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        $output = & $bazcBin run --backend $backend $path 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $rendered = (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+            if (-not $rendered) {
+                $rendered = "no output"
+            }
+            $lastFailure = $rendered
             continue
         }
         $timeMs = $output | Where-Object { "$_" -match '^[0-9]+$' } | Select-Object -First 1
         if ($timeMs) {
             $val = [int]"$timeMs"
             if ($best -lt 0 -or $val -lt $best) { $best = $val }
+            continue
         }
+        $rendered = (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+        if (-not $rendered) {
+            $rendered = "no output"
+        }
+        $lastFailure = $rendered
+    }
+    if ($best -lt 0) {
+        throw ("benchmark '{0}' failed for backend '{1}': {2}" -f $name, $backend, $lastFailure)
     }
     return $best
 }
@@ -164,13 +201,20 @@ if ($Mode -eq "baseline") {
 } else {
     Write-Host "== Gate (ratio): llvm vs go (iterations ${Iterations}) =="
     foreach ($b in $benchFiles) {
-        $tGo = Run-Bench "go" $b.Name $b.Path $Iterations
-        $tLlvm = Run-Bench "llvm" $b.Name $b.Path $Iterations
-    if ($tGo -lt 0 -or $tLlvm -lt 0) {
-        Write-Host ("{0,-18} {1}" -f $b.Name, "error")
-        $fail = $true
-        continue
-    }
+        try {
+            $tGo = Run-Bench "go" $b.Name $b.Path $Iterations
+        } catch {
+            Write-Host ("{0,-18} go error: {1}" -f $b.Name, $_.Exception.Message)
+            $fail = $true
+            continue
+        }
+        try {
+            $tLlvm = Run-Bench "llvm" $b.Name $b.Path $Iterations
+        } catch {
+            Write-Host ("{0,-18} llvm error: {1}" -f $b.Name, $_.Exception.Message)
+            $fail = $true
+            continue
+        }
         $ratio = [math]::Round($tLlvm / $tGo, 2)
         $limit = $targets[$b.Name]
         if (-not $limit) {
