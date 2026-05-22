@@ -221,6 +221,12 @@ jobs:
       - name: Sync Packages
         run: go run ./cmd/bazc pkg sync
 
+      - name: Compiler Unit Tests
+        run: go test ./internal/compiler -count=1
+
+      - name: LLVM Unit Tests
+        run: go test ./internal/intrinsics ./internal/codegenllvm -count=1
+
       - name: Unit Tests
         run: go test ./...
 

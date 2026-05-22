@@ -42,6 +42,7 @@ function Run-Bench($backend, $name, $path, $iters) {
     $best = -1
     $lastFailure = $null
     for ($i = 0; $i -lt $iters; $i++) {
+        Write-Host ("-> {0} [{1}] iteration {2}/{3}" -f $name, $backend, ($i + 1), $iters)
         $output = & $bazcBin run --backend $backend $path 2>&1
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
