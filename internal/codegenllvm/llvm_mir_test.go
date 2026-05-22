@@ -105,6 +105,70 @@ func TestGenerateLLVMIREmitsHostTargetHeaderWhenKnown(t *testing.T) {
 	}
 }
 
+func TestGenerateLLVMIRStringRuntimeNormalizesNullPointers(t *testing.T) {
+	src := `fn main(): void {
+    let joined = "ba" + "zic";
+    let has = contains(joined, "zi");
+    let pref = starts_with(joined, "ba");
+    let suff = ends_with(joined, "ic");
+    let upper = to_upper(joined);
+    let trimmed = trim_space("  bazic  ");
+    let repeated = repeat("ba", 2);
+    let replaced = replace("bazic", "zi", "za");
+    println(joined);
+    println(has);
+    println(pref);
+    println(suff);
+    println(upper);
+    println(trimmed);
+    println(repeated);
+    println(replaced);
+}`
+	prog := parseAndCheckLLVM(t, src)
+	out, err := GenerateLLVMIR(prog)
+	if err != nil {
+		t.Fatalf("generate llvm failed: %v", err)
+	}
+	for _, needle := range []string{
+		"%a_safe = select i1 %a_safe_isnull, ptr %a_safe_empty, ptr %a",
+		"call i32 @strcmp(ptr %a_safe, ptr %b_safe)",
+		"call ptr @strstr(ptr %s_safe, ptr %sub_safe)",
+		"call i32 @strncmp(ptr %s_safe, ptr %prefix_safe, i64 %len)",
+		"call i64 @strlen(ptr %s_safe)",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("expected null-safe llvm string runtime snippet %q in generated llvm:\n%s", needle, out)
+		}
+	}
+}
+
+func TestEmitParseRuntimeNormalizesNullPointers(t *testing.T) {
+	strs := stringPool{
+		names: map[string]string{
+			"":              ".str0",
+			"invalid int":   ".str1",
+			"invalid float": ".str2",
+		},
+		ordered: []string{"", "invalid int", "invalid float"},
+	}
+	intOut := emitParseInt(structPool{}, strs)
+	floatOut := emitParseFloat(structPool{}, strs)
+	for _, tc := range []struct {
+		name   string
+		out    string
+		needle string
+	}{
+		{name: "parse_int select", out: intOut, needle: "%s_safe = select i1 %s_safe_isnull, ptr %s_safe_empty, ptr %s"},
+		{name: "parse_int strtol", out: intOut, needle: "call i64 @strtol(ptr %s_safe, ptr %endptr, i32 10)"},
+		{name: "parse_float select", out: floatOut, needle: "%s_safe = select i1 %s_safe_isnull, ptr %s_safe_empty, ptr %s"},
+		{name: "parse_float strtod", out: floatOut, needle: "call double @strtod(ptr %s_safe, ptr %endptr)"},
+	} {
+		if !strings.Contains(tc.out, tc.needle) {
+			t.Fatalf("expected null-safe llvm parse runtime snippet %q in %s:\n%s", tc.needle, tc.name, tc.out)
+		}
+	}
+}
+
 func TestEmitValueStmtExprMIRLLVMUsesStructuredStmtForms(t *testing.T) {
 	ctx := newFuncCtx(
 		enumInfo{enumTypes: map[string]bool{"Role": true}, variantType: map[string]string{"Guest": "Role", "Admin": "Role"}, variantIndex: map[string]int{"Guest": 0, "Admin": 1}},
