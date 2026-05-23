@@ -349,7 +349,13 @@ func TestEmitCallValueStmtMIRLLVMReconstructsCompactBoolResultABI(t *testing.T) 
 			},
 		}},
 		interfacePool{names: map[string]bool{}},
-		stringPool{},
+		stringPool{
+			names: map[string]string{
+				"token":  ".str0",
+				"secret": ".str1",
+			},
+			ordered: []string{"token", "secret"},
+		},
 		false,
 		nil,
 	)
