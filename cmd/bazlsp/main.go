@@ -465,50 +465,25 @@ func indexSymbols(text string) map[string]position {
 		line, col := indexToLineCol(text, idx)
 		out[name] = position{Line: line, Character: col}
 	}
-	re := regexp.MustCompile(`\b(fn|struct|enum|interface|let)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	matches := re.FindAllStringSubmatchIndex(text, -1)
-	for _, m := range matches {
-		if len(m) < 6 {
-			continue
-		}
-		name := text[m[4]:m[5]]
-		add(name, m[4])
+	for _, sym := range langsurface.FindDeclSymbols(text) {
+		add(sym.Name, sym.Start)
 	}
 	return out
 }
 
 func indexDocSymbols(text string) []docSymbol {
-	re := regexp.MustCompile(`\b(fn|struct|enum|interface|let)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	matches := re.FindAllStringSubmatchIndex(text, -1)
-	out := make([]docSymbol, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 6 {
-			continue
-		}
-		kindWord := text[m[2]:m[3]]
-		name := text[m[4]:m[5]]
-		startLine, startCol := indexToLineCol(text, m[4])
-		endLine, endCol := indexToLineCol(text, m[5])
-		kind := 13
-		switch kindWord {
-		case "fn":
-			kind = 12
-		case "struct":
-			kind = 23
-		case "enum":
-			kind = 10
-		case "interface":
-			kind = 11
-		case "let":
-			kind = 13
-		}
+	decls := langsurface.FindDeclSymbols(text)
+	out := make([]docSymbol, 0, len(decls))
+	for _, sym := range decls {
+		startLine, startCol := indexToLineCol(text, sym.Start)
+		endLine, endCol := indexToLineCol(text, sym.End)
 		rng := lspRange{
 			Start: position{Line: startLine, Character: startCol},
 			End:   position{Line: endLine, Character: endCol},
 		}
 		out = append(out, docSymbol{
-			Name:           name,
-			Kind:           kind,
+			Name:           sym.Name,
+			Kind:           sym.Kind.LSPCompletionOrSymbolKind(),
 			Range:          rng,
 			SelectionRange: rng,
 		})

@@ -37,3 +37,17 @@ func TestHoverForUsesIntrinsicSurfaceRegistry(t *testing.T) {
 		t.Fatalf("expected parse_int hover to include return type, got %q", got)
 	}
 }
+
+func TestIndexDocSymbolsUsesSharedDeclarationSurface(t *testing.T) {
+	src := "fn add(a: int, b: int): int { return a + b; }\nstruct User { name: string; }\n"
+	got := indexDocSymbols(src)
+	if len(got) != 2 {
+		t.Fatalf("unexpected document symbol count: got %d want 2", len(got))
+	}
+	if got[0].Name != "add" || got[0].Kind != 12 {
+		t.Fatalf("unexpected function symbol: %#v", got[0])
+	}
+	if got[1].Name != "User" || got[1].Kind != 23 {
+		t.Fatalf("unexpected struct symbol: %#v", got[1])
+	}
+}
