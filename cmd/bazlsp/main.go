@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -430,30 +429,7 @@ func diagnosticRange(err error) lspRange {
 }
 
 func wordAt(text string, pos position) string {
-	lines := strings.Split(text, "\n")
-	if pos.Line < 0 || pos.Line >= len(lines) {
-		return ""
-	}
-	line := lines[pos.Line]
-	if pos.Character < 0 || pos.Character > len(line) {
-		return ""
-	}
-	start := pos.Character
-	for start > 0 && isIdentChar(rune(line[start-1])) {
-		start--
-	}
-	end := pos.Character
-	for end < len(line) && isIdentChar(rune(line[end])) {
-		end++
-	}
-	if start == end {
-		return ""
-	}
-	return line[start:end]
-}
-
-func isIdentChar(r rune) bool {
-	return r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+	return langsurface.WordAt(text, langsurface.LineCol{Line: pos.Line, Character: pos.Character})
 }
 
 func indexSymbols(text string) map[string]position {
@@ -748,8 +724,7 @@ func findWordEdits(text, word, newName string) []textEdit {
 	if word == "" {
 		return nil
 	}
-	pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(word) + `\b`)
-	matches := pattern.FindAllStringIndex(text, -1)
+	matches := langsurface.FindWordRanges(text, word)
 	edits := make([]textEdit, 0, len(matches))
 	for _, m := range matches {
 		startLine, startCol := indexToLineCol(text, m[0])
