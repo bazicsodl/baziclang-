@@ -12,7 +12,6 @@ import (
 
 	"baziclang/internal/bazfmt"
 	"baziclang/internal/diag"
-	"baziclang/internal/intrinsics"
 	"baziclang/internal/langsurface"
 	"baziclang/internal/lexer"
 	"baziclang/internal/parser"
@@ -518,22 +517,16 @@ func indexDocSymbols(text string) []docSymbol {
 }
 
 func hoverFor(word string) string {
-	if spec, ok := langsurface.LookupKeyword(word); ok {
+	if spec, ok := langsurface.LookupSurfaceSymbol(word); ok {
 		return spec.Hover
-	}
-	if spec, ok := intrinsics.LookupSurfaceFunction(word); ok {
-		return spec.Hover()
 	}
 	return ""
 }
 
 func completionItemsForSurface() []completionItem {
-	items := make([]completionItem, 0, len(langsurface.KeywordSpecs())+len(intrinsics.SurfaceFunctionSpecs()))
-	for _, spec := range langsurface.KeywordSpecs() {
+	items := make([]completionItem, 0, len(langsurface.SurfaceSymbols()))
+	for _, spec := range langsurface.SurfaceSymbols() {
 		items = append(items, completionItem{Label: spec.Name, Kind: spec.CompletionKind})
-	}
-	for _, spec := range intrinsics.SurfaceFunctionSpecs() {
-		items = append(items, completionItem{Label: spec.Name, Kind: 3})
 	}
 	return items
 }
