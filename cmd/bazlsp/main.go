@@ -514,103 +514,35 @@ func codeActionsFor(uri string, text string, diags []diagnostic) []codeAction {
 }
 
 func quickFixesFor(uri string, text string, d diagnostic) []codeAction {
-	msg := d.Message
 	line := d.Range.Start.Line
 	actions := []codeAction{}
-	if strings.Contains(msg, "expected ';'") {
-		if edit, ok := insertAtLineEnd(text, line, ";"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Insert ';'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-				IsPreferred: true,
-			})
+	for _, rule := range langsurface.MatchingQuickFixRules(d.Message) {
+		edit, ok := applyQuickFixRule(rule, text, line)
+		if !ok {
+			continue
 		}
-	}
-	if strings.Contains(msg, "expected '}'") {
-		if edit, ok := insertAtLineEnd(text, line, "}"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Insert '}'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
-	}
-	if strings.Contains(msg, "expected ')'") {
-		if edit, ok := insertAtLineEnd(text, line, ")"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Insert ')'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
-	}
-	if strings.Contains(msg, "expected ']'") {
-		if edit, ok := insertAtLineEnd(text, line, "]"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Insert ']'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
-	}
-	if strings.Contains(msg, "unterminated string literal") {
-		if edit, ok := insertAtLineEnd(text, line, "\""); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Close string literal",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
-	}
-	if strings.Contains(msg, "unterminated block comment") {
-		if edit, ok := insertAtLineEnd(text, line, "*/"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Close block comment",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
-	}
-	if strings.Contains(msg, "expected '&' after '&'") {
-		if edit, ok := doubleOperatorOnLine(text, line, "&"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Replace '&' with '&&'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-				IsPreferred: true,
-			})
-		}
-	}
-	if strings.Contains(msg, "expected '|' after '|'") {
-		if edit, ok := doubleOperatorOnLine(text, line, "|"); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Replace '|' with '||'",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-				IsPreferred: true,
-			})
-		}
-	}
-	if strings.Contains(msg, "invalid escape") {
-		if edit, ok := escapeBackslashesOnLine(text, line); ok {
-			actions = append(actions, codeAction{
-				Title:       "Bazic: Escape backslashes in string",
-				Kind:        "quickfix",
-				Diagnostics: []diagnostic{d},
-				Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
-			})
-		}
+		actions = append(actions, codeAction{
+			Title:       rule.Title,
+			Kind:        "quickfix",
+			Diagnostics: []diagnostic{d},
+			Edit:        &workspaceEdit{Changes: map[string][]textEdit{uri: {edit}}},
+			IsPreferred: rule.Preferred,
+		})
 	}
 	return actions
+}
+
+func applyQuickFixRule(rule langsurface.QuickFixRule, text string, line int) (textEdit, bool) {
+	switch rule.Op {
+	case langsurface.QuickFixInsertLineEnd:
+		return insertAtLineEnd(text, line, rule.Arg)
+	case langsurface.QuickFixDoubleOperator:
+		return doubleOperatorOnLine(text, line, rule.Arg)
+	case langsurface.QuickFixEscapeBackslashes:
+		return escapeBackslashesOnLine(text, line)
+	default:
+		return textEdit{}, false
+	}
 }
 
 func insertAtLineEnd(text string, line int, insert string) (textEdit, bool) {

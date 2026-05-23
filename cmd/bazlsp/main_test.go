@@ -51,3 +51,21 @@ func TestIndexDocSymbolsUsesSharedDeclarationSurface(t *testing.T) {
 		t.Fatalf("unexpected struct symbol: %#v", got[1])
 	}
 }
+
+func TestQuickFixesUseSharedRuleSurface(t *testing.T) {
+	src := "let value = 1\n"
+	diag := diagnostic{
+		Range:   lspRange{Start: position{Line: 0, Character: len("let value = 1")}},
+		Message: "expected ';' before newline",
+	}
+	actions := quickFixesFor("file:///test.bz", src, diag)
+	if len(actions) == 0 {
+		t.Fatalf("expected quick-fix action")
+	}
+	if actions[0].Title != "Bazic: Insert ';'" {
+		t.Fatalf("unexpected quick-fix title: %#v", actions[0])
+	}
+	if !actions[0].IsPreferred {
+		t.Fatalf("expected insert-semicolon fix to be preferred")
+	}
+}
