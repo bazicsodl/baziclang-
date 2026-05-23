@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -50,5 +51,29 @@ func TestDoctorCmdPrintsAlphaReleasePosture(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected doctor output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestDoctorCmdJSONUsesSharedContractSurface(t *testing.T) {
+	out := captureStdout(t, func() {
+		if rc := doctorCmd("bazic", "go", []string{"--json"}); rc != 0 {
+			t.Fatalf("expected doctorCmd json success, got %d", rc)
+		}
+	})
+	var report doctorReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("unmarshal doctor json: %v\n%s", err, out)
+	}
+	if report.ReleaseTrack != releasecontract.ReleaseTrackAlpha {
+		t.Fatalf("unexpected release track: %#v", report)
+	}
+	if got := strings.Join(report.StdlibCore, ", "); got != releasecontract.JoinModules(releasecontract.AlphaStableStdModules()) {
+		t.Fatalf("unexpected stdlib core: %q", got)
+	}
+	if got := strings.Join(report.StdlibExperimental, ", "); got != releasecontract.JoinModules(releasecontract.AlphaExperimentalStdModules()) {
+		t.Fatalf("unexpected stdlib experimental: %q", got)
+	}
+	if report.GoBackend != releasecontract.GoBackendReleaseStatus || report.LLVMBackend != releasecontract.LLVMBackendReleaseStatus {
+		t.Fatalf("unexpected backend status report: %#v", report)
 	}
 }

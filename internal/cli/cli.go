@@ -28,6 +28,40 @@ type Options struct {
 	Version        string
 }
 
+type doctorToolStatus struct {
+	Status   string `json:"status"`
+	Required bool   `json:"required"`
+	Message  string `json:"message,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+type doctorStdlibStatus struct {
+	Found   bool   `json:"found"`
+	Path    string `json:"path,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type doctorProjectStatus struct {
+	Present   bool   `json:"present"`
+	Root      string `json:"root,omitempty"`
+	PkgVerify string `json:"pkg_verify,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+type doctorReport struct {
+	ReleaseTrack       string              `json:"release_track"`
+	GoBackend          string              `json:"go_backend"`
+	LLVMBackend        string              `json:"llvm_backend"`
+	StdlibCore         []string            `json:"stdlib_core"`
+	StdlibExperimental []string            `json:"stdlib_experimental"`
+	Clang              doctorToolStatus    `json:"clang"`
+	Go                 doctorToolStatus    `json:"go"`
+	Stdlib             doctorStdlibStatus  `json:"stdlib"`
+	Project            doctorProjectStatus `json:"project"`
+	BazicClang         string              `json:"bazic_clang,omitempty"`
+	BazicClangFlags    string              `json:"bazic_clang_flags,omitempty"`
+}
+
 func Run(args []string, opts Options) int {
 	name := strings.TrimSpace(opts.BinaryName)
 	if name == "" {
@@ -889,49 +923,55 @@ func ensureGitignore(path string) error {
 }
 
 func doctorCmd(binaryName string, defaultBackend string, args []string) int {
-	if len(args) != 0 {
-		return die(fmt.Sprintf("usage: %s doctor", binaryName))
+	args = normalizeArgs(args, map[string]bool{"--json": false})
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON output")
+	_ = fs.Parse(args)
+	if fs.NArg() != 0 {
+		return die(fmt.Sprintf("usage: %s doctor [--json]", binaryName))
 	}
-	fail := false
-	fmt.Printf("release track: %s\n", releasecontract.ReleaseTrackAlpha)
-	fmt.Printf("go backend: %s\n", releasecontract.GoBackendReleaseStatus)
-	fmt.Printf("llvm backend: %s\n", releasecontract.LLVMBackendReleaseStatus)
-	fmt.Printf("stdlib core: %s\n", releasecontract.JoinModules(releasecontract.AlphaStableStdModules()))
-	fmt.Printf("stdlib experimental: %s\n", releasecontract.JoinModules(releasecontract.AlphaExperimentalStdModules()))
-	if defaultBackend == "llvm" {
-		if _, err := exec.LookPath("clang"); err != nil {
-			fmt.Println("clang: missing (required for LLVM backend)")
-			fail = true
-		} else {
-			fmt.Println("clang: ok")
+	report, fail := collectDoctorReport(defaultBackend)
+	if *jsonOut {
+		data, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(data))
+		if fail {
+			return 1
 		}
+		return 0
+	}
+	fmt.Printf("release track: %s\n", report.ReleaseTrack)
+	fmt.Printf("go backend: %s\n", report.GoBackend)
+	fmt.Printf("llvm backend: %s\n", report.LLVMBackend)
+	fmt.Printf("stdlib core: %s\n", releasecontract.JoinModules(report.StdlibCore))
+	fmt.Printf("stdlib experimental: %s\n", releasecontract.JoinModules(report.StdlibExperimental))
+	fmt.Printf("clang: %s", report.Clang.Status)
+	if report.Clang.Message != "" {
+		fmt.Printf(" (%s)", report.Clang.Message)
+	}
+	fmt.Println()
+	if report.BazicClang != "" {
+		fmt.Printf("BAZIC_CLANG: %s\n", report.BazicClang)
+	}
+	if report.BazicClangFlags != "" {
+		fmt.Printf("BAZIC_CLANG_FLAGS: %s\n", report.BazicClangFlags)
+	}
+	fmt.Printf("go: %s", report.Go.Status)
+	if report.Go.Message != "" {
+		fmt.Printf(" (%s)", report.Go.Message)
+	}
+	fmt.Println()
+	if report.Stdlib.Found {
+		fmt.Printf("stdlib: %s\n", report.Stdlib.Path)
 	} else {
-		fmt.Println("clang: optional")
+		fmt.Printf("stdlib: %s\n", report.Stdlib.Message)
 	}
-	if v := strings.TrimSpace(os.Getenv("BAZIC_CLANG")); v != "" {
-		fmt.Printf("BAZIC_CLANG: %s\n", v)
-	}
-	if v := strings.TrimSpace(os.Getenv("BAZIC_CLANG_FLAGS")); v != "" {
-		fmt.Printf("BAZIC_CLANG_FLAGS: %s\n", v)
-	}
-	if _, err := exec.LookPath("go"); err != nil {
-		fmt.Println("go: missing (required for Go backend / wasm builds)")
-	} else {
-		fmt.Println("go: ok")
-	}
-	if stdPath, ok := pkgm.DetectStdlibPath(); ok {
-		fmt.Printf("stdlib: %s\n", stdPath)
-	} else {
-		fmt.Println("stdlib: not found (set BAZIC_STDLIB or install with std next to bazic)")
-	}
-	wd, _ := os.Getwd()
-	if root, err := pkgm.FindProjectRoot(wd); err == nil {
-		fmt.Printf("project: %s\n", root)
-		if err := pkgm.Verify(root); err != nil {
-			fmt.Printf("pkg verify: pending (%s)\n", err.Error())
-		} else {
-			fmt.Println("pkg verify: ok")
+	if report.Project.Present {
+		fmt.Printf("project: %s\n", report.Project.Root)
+		fmt.Printf("pkg verify: %s", report.Project.PkgVerify)
+		if report.Project.Message != "" {
+			fmt.Printf(" (%s)", report.Project.Message)
 		}
+		fmt.Println()
 	} else {
 		fmt.Println("project: none")
 	}
@@ -939,6 +979,84 @@ func doctorCmd(binaryName string, defaultBackend string, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func collectDoctorReport(defaultBackend string) (doctorReport, bool) {
+	report := doctorReport{
+		ReleaseTrack:       releasecontract.ReleaseTrackAlpha,
+		GoBackend:          releasecontract.GoBackendReleaseStatus,
+		LLVMBackend:        releasecontract.LLVMBackendReleaseStatus,
+		StdlibCore:         releasecontract.AlphaStableStdModules(),
+		StdlibExperimental: releasecontract.AlphaExperimentalStdModules(),
+	}
+	fail := false
+	if defaultBackend == "llvm" {
+		if path, err := exec.LookPath("clang"); err != nil {
+			report.Clang = doctorToolStatus{
+				Status:   "missing",
+				Required: true,
+				Message:  "required for LLVM backend",
+			}
+			fail = true
+		} else {
+			report.Clang = doctorToolStatus{
+				Status:   "ok",
+				Required: true,
+				Path:     path,
+			}
+		}
+	} else {
+		report.Clang = doctorToolStatus{
+			Status:   "optional",
+			Required: false,
+		}
+	}
+	report.BazicClang = strings.TrimSpace(os.Getenv("BAZIC_CLANG"))
+	report.BazicClangFlags = strings.TrimSpace(os.Getenv("BAZIC_CLANG_FLAGS"))
+	if path, err := exec.LookPath("go"); err != nil {
+		report.Go = doctorToolStatus{
+			Status:   "missing",
+			Required: true,
+			Message:  "required for Go backend / wasm builds",
+		}
+	} else {
+		report.Go = doctorToolStatus{
+			Status:   "ok",
+			Required: true,
+			Path:     path,
+		}
+	}
+	if stdPath, ok := pkgm.DetectStdlibPath(); ok {
+		report.Stdlib = doctorStdlibStatus{
+			Found: true,
+			Path:  stdPath,
+		}
+	} else {
+		report.Stdlib = doctorStdlibStatus{
+			Found:   false,
+			Message: "not found (set BAZIC_STDLIB or install with std next to bazic)",
+		}
+	}
+	wd, _ := os.Getwd()
+	if root, err := pkgm.FindProjectRoot(wd); err == nil {
+		if err := pkgm.Verify(root); err != nil {
+			report.Project = doctorProjectStatus{
+				Present:   true,
+				Root:      root,
+				PkgVerify: "pending",
+				Message:   err.Error(),
+			}
+		} else {
+			report.Project = doctorProjectStatus{
+				Present:   true,
+				Root:      root,
+				PkgVerify: "ok",
+			}
+		}
+	} else {
+		report.Project = doctorProjectStatus{Present: false}
+	}
+	return report, fail
 }
 
 func cleanCmd(binaryName string, args []string) int {

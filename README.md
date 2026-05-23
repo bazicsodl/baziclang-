@@ -57,6 +57,7 @@ cd hello
 .\bin\bazic.exe check .\examples\phase2\main.bz
 .\bin\bazic.exe run .  # directory => ./main.bz
 .\bin\bazic.exe doctor
+.\bin\bazic.exe doctor --json
 .\bin\bazic.exe run . -- arg1 arg2
 .\bin\bazic.exe clean
 .\bin\bazic.exe repl
@@ -103,7 +104,7 @@ Note: `bazic` defaults to the Go backend. Use `--backend llvm` for opt-in experi
 Note: Bazic is currently on an alpha release track. Treat the Go backend plus the Tier 1 stdlib in `STDLIB_TIERS.md` as the supported path.
 Note: LLVM builds look for `runtime/bazic_runtime.c` in the project root, or under `BAZIC_HOME/runtime`, or next to the Bazic install.
 Note: `bazic new`/`bazic init` auto-add the stdlib if `BAZIC_STDLIB` or `BAZIC_HOME` is set, or if a `std` directory is adjacent to the `bazic` binary.
-Tip: `bazic doctor` reports toolchain and stdlib status.
+Tip: `bazic doctor` reports toolchain and stdlib status, and `bazic doctor --json` emits the same contract as machine-readable metadata for tooling.
 Note: `bazic new`/`bazic init` ensure `.gitignore` contains Bazic build outputs (`.bazic/`, `bin/`, `*.exe`, `*.wasm`).
 Tip: LLVM builds honor `BAZIC_CLANG` (compiler path) and `BAZIC_CLANG_FLAGS` (extra flags).
 Tip: Go/WASM builds set `BAZIC_TARGET=wasm` internally to avoid incompatible DB drivers.
