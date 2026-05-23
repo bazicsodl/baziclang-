@@ -88,6 +88,7 @@ func BuildLLVMRuntimeSurface(httpResponseType, serverRequestType, serverResponse
 func LLVMRuntimePreludeDecls() []string {
 	return []string{
 		"declare i32 @printf(ptr, ...)\n",
+		fmt.Sprintf("declare void @%s(ptr, i64)\n", LLVMRuntimePrintStrFunc),
 		"declare i64 @strlen(ptr)\n",
 		fmt.Sprintf("declare i64 @%s(ptr)\n", LLVMRuntimeLenFunc),
 		"declare i32 @strcmp(ptr, ptr)\n",

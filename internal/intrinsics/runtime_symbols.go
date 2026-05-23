@@ -5,6 +5,7 @@ const (
 	PreludeAssertMessageGlobal = "__bazic_assert_message"
 	LLVMRuntimeSetArgsFunc     = "__bazic_set_args"
 	LLVMRuntimeInitGlobalsFunc = "__bazic_init_globals"
+	LLVMRuntimePrintStrFunc    = "__bazic_print_str"
 	LLVMRuntimeRouteType       = "bazic_route"
 	LLVMRuntimeRoutesGlobal    = "__bazic_routes"
 	LLVMRuntimeRoutesLenGlobal = "__bazic_routes_len"

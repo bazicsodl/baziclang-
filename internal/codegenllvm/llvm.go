@@ -2305,6 +2305,10 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 	ctx := p.ctx
 	st := p.stmt
 	funcs := p.funcs
+	newlineFlag := "0"
+	if st.Func == "println" {
+		newlineFlag = "1"
+	}
 	if intrinsics.IsBuiltinVoidCall(st.Func) {
 		if len(st.Args) != 1 {
 			return "", "", ast.TypeInvalid, false
@@ -2332,10 +2336,6 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			}
 			return argCode + fmtCode + fmt.Sprintf("  call i32 @printf(ptr %s, double %s)\n", fmtPtr, argVal), "", ast.TypeVoid, true
 		case argType == ast.TypeBool:
-			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
 			trueCode, truePtr, ok := stringPtr(ctx, "true")
 			if !ok {
 				return "", "", ast.TypeInvalid, false
@@ -2346,34 +2346,26 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			}
 			tmp := ctx.ir.nextTmp()
 			condCode, cond := boolToI1(ctx, argVal)
-			code := argCode + fmtCode + trueCode + falseCode + condCode
+			code := argCode + trueCode + falseCode + condCode
 			code += fmt.Sprintf("  %s = select i1 %s, ptr %s, ptr %s\n", tmp, cond, truePtr, falsePtr)
-			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, tmp)
+			code += fmt.Sprintf("  call void @%s(ptr %s, i64 %s)\n", intrinsics.LLVMRuntimePrintStrFunc, tmp, newlineFlag)
 			return code, "", ast.TypeVoid, true
 		case argType == ast.TypeString:
-			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
 			nonnullCode, nonnullPtr, ok := nonNullStringPtr(ctx, argVal)
 			if !ok {
 				return "", "", ast.TypeInvalid, false
 			}
-			return argCode + fmtCode + nonnullCode + fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, nonnullPtr), "", ast.TypeVoid, true
+			return argCode + nonnullCode + fmt.Sprintf("  call void @%s(ptr %s, i64 %s)\n", intrinsics.LLVMRuntimePrintStrFunc, nonnullPtr, newlineFlag), "", ast.TypeVoid, true
 		case argType == ast.TypeAny:
-			fmtCode, fmtPtr, ok := stringPtr(ctx, fmtLit)
-			if !ok {
-				return "", "", ast.TypeInvalid, false
-			}
 			tmp := ctx.ir.nextTmp()
-			code := argCode + fmtCode
+			code := argCode
 			code += fmt.Sprintf("  %s = call ptr @%s(%%Any %s)\n", tmp, intrinsics.LLVMRuntimeAnyToStrFunc, argVal)
 			nonnullCode, nonnullPtr, ok := nonNullStringPtr(ctx, tmp)
 			if !ok {
 				return "", "", ast.TypeInvalid, false
 			}
 			code += nonnullCode
-			code += fmt.Sprintf("  call i32 @printf(ptr %s, ptr %s)\n", fmtPtr, nonnullPtr)
+			code += fmt.Sprintf("  call void @%s(ptr %s, i64 %s)\n", intrinsics.LLVMRuntimePrintStrFunc, nonnullPtr, newlineFlag)
 			return code, "", ast.TypeVoid, true
 		default:
 			return "", "", ast.TypeInvalid, false

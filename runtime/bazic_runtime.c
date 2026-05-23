@@ -156,6 +156,7 @@ Result_int_Error __std_json_get_int(char *s, char *key);
 Result_float_Error __std_json_get_float(char *s, char *key);
 Result_string_Error __std_read_all(void);
 void __bazic_set_args(int argc, char **argv);
+void __bazic_print_str(char *s, int64_t newline);
 char *__std_args(void);
 Result_string_Error __std_getenv(char *key);
 Result_string_Error __std_cwd(void);
@@ -5114,6 +5115,14 @@ char *__std_query_get(char *query, char *key) {
 void __bazic_set_args(int argc, char **argv) {
 	bazic_argc = argc;
 	bazic_argv = argv;
+}
+
+void __bazic_print_str(char *s, int64_t newline) {
+	const char *safe = s ? s : "";
+	fputs(safe, stdout);
+	if (newline != 0) {
+		fputc('\n', stdout);
+	}
 }
 
 char *__std_args(void) {

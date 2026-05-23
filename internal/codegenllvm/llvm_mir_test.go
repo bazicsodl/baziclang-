@@ -143,6 +143,24 @@ func TestGenerateLLVMIRStringRuntimeNormalizesNullPointers(t *testing.T) {
 	}
 }
 
+func TestGenerateLLVMIRUsesRuntimeStringPrintHelper(t *testing.T) {
+	src := `fn main(): void {
+    print("hello");
+    println(true);
+}`
+	prog := parseAndCheckLLVM(t, src)
+	out, err := GenerateLLVMIR(prog)
+	if err != nil {
+		t.Fatalf("generate llvm failed: %v", err)
+	}
+	if !strings.Contains(out, "declare void @"+intrinsics.LLVMRuntimePrintStrFunc+"(ptr, i64)") {
+		t.Fatalf("expected runtime string print helper declaration in generated llvm:\n%s", out)
+	}
+	if !strings.Contains(out, "call void @"+intrinsics.LLVMRuntimePrintStrFunc) {
+		t.Fatalf("expected runtime string print helper call in generated llvm:\n%s", out)
+	}
+}
+
 func TestEmitParseRuntimeNormalizesNullPointers(t *testing.T) {
 	strs := stringPool{
 		names: map[string]string{
@@ -604,7 +622,7 @@ func TestEmitFunctionMIRSkipsDeadCFGTempsAndPureExprs(t *testing.T) {
 			t.Fatalf("expected llvm mir emission to skip dead cfg work %q:\n%s", unwanted, out)
 		}
 	}
-	if !strings.Contains(out, "@puts") && !strings.Contains(out, "@printf") {
+	if !strings.Contains(out, "@puts") && !strings.Contains(out, "@printf") && !strings.Contains(out, "@"+intrinsics.LLVMRuntimePrintStrFunc) {
 		t.Fatalf("expected live side-effecting cfg call to remain:\n%s", out)
 	}
 }
