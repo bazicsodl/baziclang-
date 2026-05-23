@@ -1,0 +1,26 @@
+<benchmarks>
+  <baseline platform="macos" threshold_percent="40">
+    <go>
+      <json_validate>4</json_validate>
+      <jwt_sign_verify>42</jwt_sign_verify>
+      <loop_arith>54</loop_arith>
+      <parse_int_float>9</parse_int_float>
+      <crypto_sha256>4</crypto_sha256>
+      <match_hot>343</match_hot>
+      <base64_roundtrip>32</base64_roundtrip>
+      <string_concat>46</string_concat>
+      <string_builder>961</string_builder>
+    </go>
+    <llvm>
+      <json_validate>1</json_validate>
+      <jwt_sign_verify>76</jwt_sign_verify>
+      <loop_arith>0</loop_arith>
+      <parse_int_float>4</parse_int_float>
+      <crypto_sha256>8</crypto_sha256>
+      <match_hot>22</match_hot>
+      <base64_roundtrip>39</base64_roundtrip>
+      <string_concat>22</string_concat>
+      <string_builder>1847</string_builder>
+    </llvm>
+  </baseline>
+</benchmarks>

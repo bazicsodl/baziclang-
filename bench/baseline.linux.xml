@@ -1,0 +1,26 @@
+<benchmarks>
+  <baseline platform="linux" threshold_percent="40">
+    <go>
+      <match_hot>288</match_hot>
+      <string_builder>585</string_builder>
+      <loop_arith>56</loop_arith>
+      <jwt_sign_verify>42</jwt_sign_verify>
+      <json_validate>6</json_validate>
+      <parse_int_float>12</parse_int_float>
+      <base64_roundtrip>41</base64_roundtrip>
+      <string_concat>27</string_concat>
+      <crypto_sha256>6</crypto_sha256>
+    </go>
+    <llvm>
+      <match_hot>26</match_hot>
+      <string_builder>2538</string_builder>
+      <loop_arith>0</loop_arith>
+      <jwt_sign_verify>76</jwt_sign_verify>
+      <json_validate>1</json_validate>
+      <parse_int_float>13</parse_int_float>
+      <base64_roundtrip>51</base64_roundtrip>
+      <string_concat>97</string_concat>
+      <crypto_sha256>8</crypto_sha256>
+    </llvm>
+  </baseline>
+</benchmarks>

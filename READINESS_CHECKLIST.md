@@ -18,10 +18,10 @@ Important: alpha and v1 are not the same thing. Items below should only be marke
 - [x] `emit-llvm --check` gate green
 
 ## Performance
-- [ ] Bench baselines recorded for Windows, Linux, macOS
+- [x] Bench baselines recorded for Windows, Linux, macOS
   - [x] Windows baseline recorded (`bench/baseline.windows.xml`)
-  - [ ] Linux baseline recorded (`bench/baseline.linux.xml`)
-  - [ ] macOS baseline recorded (`bench/baseline.macos.xml`)
+  - [x] Linux baseline recorded (`bench/baseline.linux.xml`)
+  - [x] macOS baseline recorded (`bench/baseline.macos.xml`)
 - [x] Regression gates enabled
 
 ## Safety
