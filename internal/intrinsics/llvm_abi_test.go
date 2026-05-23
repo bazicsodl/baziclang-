@@ -316,7 +316,7 @@ func TestFormatLLVMIntrinsicDeclUsesSRetForLoweredResultStructs(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected declaration formatting to succeed")
 	}
-	if !strings.Contains(decl, "declare void @__std_read_file(ptr sret(%Result__string__Error), ptr)") {
+	if !strings.Contains(decl, "declare void @__std_read_file(ptr sret(%Result__string__Error) align 8, ptr)") {
 		t.Fatalf("expected sret intrinsic declaration, got %q", decl)
 	}
 }
@@ -369,7 +369,7 @@ func TestFormatLLVMIntrinsicDeclUsesCompactRegisterReturnForBoolResult(t *testin
 		t.Fatalf("expected bool result declaration formatting to succeed")
 	}
 	if runtime.GOOS == "windows" {
-		if !strings.Contains(decl, "declare void @__std_write_file(ptr sret(%Result__bool__Error), ptr, ptr)") {
+		if !strings.Contains(decl, "declare void @__std_write_file(ptr sret(%Result__bool__Error) align 8, ptr, ptr)") {
 			t.Fatalf("expected windows sret bool intrinsic declaration, got %q", decl)
 		}
 		return
@@ -533,13 +533,13 @@ func TestFormatLLVMStdDeclsUsesAliasesAndAvailableStructs(t *testing.T) {
 		}
 	}
 	out := FormatLLVMStdDecls(map[string]ast.Type{"HttpResponse": ast.Type(httpResponseType)}, hasStruct)
-	if !strings.Contains(out, "declare void @__std_json_get_int(ptr sret(%Result__int__Error), ptr, ptr)\n") {
+	if !strings.Contains(out, "declare void @__std_json_get_int(ptr sret(%Result__int__Error) align 8, ptr, ptr)\n") {
 		t.Fatalf("expected int result intrinsic decl in generated std decls:\n%s", out)
 	}
 	if strings.Contains(out, "__std_json_get_float") {
 		t.Fatalf("did not expect float result intrinsic decl without matching result struct:\n%s", out)
 	}
-	expectedHTTP := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
+	expectedHTTP := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + ") align 8, ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
 	if !strings.Contains(out, expectedHTTP) {
 		t.Fatalf("expected HttpResponse result decl using aliased internal type name:\n%s", out)
 	}

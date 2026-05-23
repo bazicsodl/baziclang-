@@ -2429,7 +2429,7 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 	case intrinsics.LLVMCallSRet:
 		tmpPtr := ctx.ir.nextTmp()
 		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
-		args := append([]string{fmt.Sprintf("ptr sret(%s) %s", retType, tmpPtr)}, argParts...)
+		args := append([]string{fmt.Sprintf("ptr sret(%s) align 8 %s", retType, tmpPtr)}, argParts...)
 		b.WriteString(fmt.Sprintf("  call void @%s(%s)\n", st.Func, strings.Join(args, ", ")))
 		loadCode, tmp, loadType, ok := ctx.emitLoadLLVMValue(tmpPtr, ret)
 		if !ok {

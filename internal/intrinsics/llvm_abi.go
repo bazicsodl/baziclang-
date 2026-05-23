@@ -429,7 +429,7 @@ func MapLLVMAnyHeapCopyType(t ast.Type, isEnum func(string) bool, hasStruct func
 func FormatLLVMIntrinsicDecl(fn FunctionSpec, mapType func(ast.Type) (string, bool), hasStruct func(string) bool) (string, bool) {
 	params := make([]string, 0, len(fn.Params)+1)
 	if ClassifyLLVMCallConvention(fn.Name, fn.Ret, hasStruct) == LLVMCallSRet {
-		params = append(params, fmt.Sprintf("ptr sret(%%%s)", fn.Ret))
+		params = append(params, fmt.Sprintf("ptr sret(%%%s) align 8", fn.Ret))
 		for _, p := range fn.Params {
 			llvmParam, ok := MapLLVMCallParamType(fn.Name, p, mapType, hasStruct)
 			if !ok {

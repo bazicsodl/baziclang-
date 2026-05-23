@@ -328,6 +328,49 @@ func TestEmitCallValueStmtMIRLLVMBoxesAnyArgsThroughSharedCoercion(t *testing.T)
 	}
 }
 
+func TestEmitCallValueStmtMIRLLVMUsesAlignedSRetForStdResultCalls(t *testing.T) {
+	ctx := newFuncCtx(
+		enumInfo{},
+		structPool{byName: map[string]structInfo{
+			"Error": {
+				Fields:     []structFieldInfo{{Name: "message", Type: ast.TypeString}},
+				FieldIndex: map[string]int{"message": 0},
+			},
+			intrinsics.LLVMResultStructName("string", "Error"): {
+				Fields: []structFieldInfo{
+					{Name: "is_ok", Type: ast.TypeBool},
+					{Name: "value", Type: ast.TypeString},
+					{Name: "err", Type: ast.Type("Error")},
+				},
+				FieldIndex: map[string]int{"is_ok": 0, "value": 1, "err": 2},
+			},
+		}},
+		interfacePool{names: map[string]bool{}},
+		stringPool{
+			names:   map[string]string{"path.txt": ".str0", "": ".str1"},
+			ordered: []string{"path.txt", ""},
+		},
+		false,
+		nil,
+	)
+	code, value, typ, ok := emitCallValueStmtMIRLLVM(ctx, &mir.CallStmt{
+		Name: "file",
+		Func: "__std_read_file",
+		Args: []mir.Expr{&mir.StringExpr{Value: "path.txt"}},
+	}, map[string]llvmFuncSig{
+		"__std_read_file": {Params: []ast.Type{ast.TypeString}, Ret: ast.Type("Result__string__Error")},
+	})
+	if !ok {
+		t.Fatalf("expected sret result call emission to succeed")
+	}
+	if typ != ast.Type("Result__string__Error") || value == "" {
+		t.Fatalf("unexpected sret result call emission: value=%q typ=%s", value, typ)
+	}
+	if !strings.Contains(code, "call void @__std_read_file(ptr sret(%Result__string__Error) align 8") {
+		t.Fatalf("expected aligned sret std call emission, got:\n%s", code)
+	}
+}
+
 func TestEmitCallValueStmtMIRLLVMReconstructsCompactBoolResultABI(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows uses sret for Result[bool,Error]")
@@ -708,13 +751,13 @@ func TestEmitStdDeclsUsesIntrinsicRegistryAndAvailableResultStructs(t *testing.T
 		},
 	}
 	out := emitStdDecls(map[string]ast.Type{"HttpResponse": ast.Type(httpResponseType)}, structs)
-	if !strings.Contains(out, "declare void @__std_json_get_int(ptr sret(%Result__int__Error), ptr, ptr)\n") {
+	if !strings.Contains(out, "declare void @__std_json_get_int(ptr sret(%Result__int__Error) align 8, ptr, ptr)\n") {
 		t.Fatalf("expected int result intrinsic decl in generated std decls:\n%s", out)
 	}
 	if strings.Contains(out, "__std_json_get_float") {
 		t.Fatalf("did not expect float result intrinsic decl without matching result struct:\n%s", out)
 	}
-	expectedHttpRespDecl := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + "), ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
+	expectedHttpRespDecl := "declare void @__std_http_get_opts_resp(ptr sret(%" + resultHttpResponseErr + ") align 8, ptr, i64, i64, ptr, ptr, i1 zeroext, ptr)\n"
 	if !strings.Contains(out, expectedHttpRespDecl) {
 		t.Fatalf("expected HttpResponse result decl using internal type name:\n%s", out)
 	}
