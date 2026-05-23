@@ -11,8 +11,8 @@ import (
 func TestAlphaStdlibModulesAreUnique(t *testing.T) {
 	seen := map[string]string{}
 	for tier, modules := range map[string][]string{
-		"stable":       AlphaStableStdModules(),
-		"experimental": AlphaExperimentalStdModules(),
+		string(StdlibTierStable):       AlphaStableStdModules(),
+		string(StdlibTierExperimental): AlphaExperimentalStdModules(),
 	} {
 		for _, mod := range modules {
 			if prev, ok := seen[mod]; ok {
@@ -20,6 +20,27 @@ func TestAlphaStdlibModulesAreUnique(t *testing.T) {
 			}
 			seen[mod] = tier
 		}
+	}
+}
+
+func TestAlphaStdlibManifestMatchesTierHelpers(t *testing.T) {
+	stable := 0
+	experimental := 0
+	for _, mod := range AlphaStdlibModules() {
+		switch mod.Tier {
+		case StdlibTierStable:
+			stable++
+		case StdlibTierExperimental:
+			experimental++
+		default:
+			t.Fatalf("unexpected tier for %q: %q", mod.Name, mod.Tier)
+		}
+	}
+	if stable != len(AlphaStableStdModules()) {
+		t.Fatalf("stable module count mismatch: manifest=%d helper=%d", stable, len(AlphaStableStdModules()))
+	}
+	if experimental != len(AlphaExperimentalStdModules()) {
+		t.Fatalf("experimental module count mismatch: manifest=%d helper=%d", experimental, len(AlphaExperimentalStdModules()))
 	}
 }
 
@@ -76,6 +97,27 @@ func TestContractDocsMentionSharedAlphaSurface(t *testing.T) {
 				"## Runtime-Owned Implementation Surface",
 				"## Stdlib-Owned Package Surface",
 				"## Backend And Stability Policy",
+			},
+			stableMods:       true,
+			experimentalMods: true,
+		},
+		{
+			path: "std/README.md",
+			wants: []string{
+				"Alpha stable core is the supported Bazic alpha stdlib surface on the Go backend.",
+				"Alpha experimental modules exist, but they are not part of the supported alpha core:",
+			},
+			stableMods:       true,
+			experimentalMods: true,
+		},
+		{
+			path: "V1_GUIDE.md",
+			wants: []string{
+				"**Backend services** on the Go backend release path.",
+				"**Web** as an experimental WASM workload via the Go backend.",
+				"**Desktop** as an experimental surface, not part of the stable alpha core.",
+				"Native (Go backend release path)",
+				"Native (LLVM experimental)",
 			},
 			stableMods:       true,
 			experimentalMods: true,

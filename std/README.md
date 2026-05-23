@@ -6,6 +6,40 @@ This standard library MVP ships as a local Bazic package (`std`) and is imported
 import "std";
 ```
 
+## Alpha Tiers
+
+Alpha stable core is the supported Bazic alpha stdlib surface on the Go backend.
+LLVM remains experimental even for Tier 1 modules, and wasm/web remains an experimental workload layered on the Go backend.
+
+Alpha stable core:
+
+- `std/io`
+- `std/fs`
+- `std/time`
+- `std/json`
+- `std/http`
+- `std/crypto`
+- `std/base64`
+- `std/collections`
+- `std/os`
+- `std/path`
+
+Alpha experimental modules exist, but they are not part of the supported alpha core:
+
+Alpha experimental:
+
+- `std/db`
+- `std/auth`
+- `std/jwt`
+- `std/session`
+- `std/desktop`
+- `std/web`
+- `std/ui`
+- `std/sql`
+- `std/validate`
+
+See `../STDLIB_TIERS.md` for the tiering policy used by the Bazic alpha release track.
+
 ## Modules and APIs
 
 ### io

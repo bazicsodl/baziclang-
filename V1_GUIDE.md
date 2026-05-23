@@ -4,11 +4,11 @@ This guide is the v1 reference for Bazic users and teams shipping real systems.
 
 ## 1. Overview
 Bazic is a compiled, statically typed language designed for small surface area, strict safety defaults, and predictable performance. It targets:
-- **Backend services** (native binaries).
-- **Web** (WASM via Go backend).
-- **Desktop** (native, simple GUI/open‑url patterns).
+- **Backend services** on the Go backend release path.
+- **Web** as an experimental WASM workload via the Go backend.
+- **Desktop** as an experimental surface, not part of the stable alpha core.
 
-Non‑goals:
+Non-goals:
 - Dynamic typing in core logic.
 - Implicit nulls or hidden error flow.
 
@@ -28,7 +28,7 @@ Tests and lint:
 ```
 
 ## 3. Language Basics
-Variables are declared with `let` and are block‑scoped:
+Variables are declared with `let` and are block-scoped:
 ```bazic
 let x = 3;
 let s: string = "hi";
@@ -94,13 +94,30 @@ Import `std` to access modules:
 import "std";
 ```
 
-Highlights:
-- `std/fs`: file IO
-- `std/time`: time helpers
-- `std/json`: validation, minify, pretty
-- `std/http`: client + simple server
-- `std/crypto`: sha256 + random hex
-- `std/collections`: StringBuilder
+Alpha stable core on the supported Go backend path:
+- `std/io`
+- `std/fs`
+- `std/time`
+- `std/json`
+- `std/http`
+- `std/crypto`
+- `std/base64`
+- `std/collections`
+- `std/os`
+- `std/path`
+
+Experimental surfaces:
+- `std/db`
+- `std/auth`
+- `std/jwt`
+- `std/session`
+- `std/desktop`
+- `std/web`
+- `std/ui`
+- `std/sql`
+- `std/validate`
+
+See `STDLIB_TIERS.md`, `std/README.md`, and `RUNTIME_CONTRACT.md` for the supported boundary.
 
 ## 8. Tooling
 ```powershell
@@ -110,9 +127,10 @@ Highlights:
 ```
 
 ## 9. Targets
-- **Native (LLVM)**: `bazic build --backend llvm`
-- **Web (WASM)**: `bazic build --target wasm`
-- **Desktop**: `examples/apps/desktop`
+- **Native (Go backend release path)**: `bazic build`
+- **Native (LLVM experimental)**: `bazic build --backend llvm`
+- **Web (WASM experimental via Go backend)**: `bazic build --target wasm`
+- **Desktop (experimental)**: `examples/apps/desktop`
 
 ## 10. Performance
 Use `scripts/bench.ps1` and `scripts/bench_gate.ps1` for runtime benches and regression gates.
@@ -121,7 +139,7 @@ Use `scripts/bench.ps1` and `scripts/bench_gate.ps1` for runtime benches and reg
 See `SAFETY.md` for `any` policy and unsafe boundary rules.
 
 ## 12. Packages
-Use `bazic pkg sync/verify/sbom` for supply‑chain validation and reproducible builds.
+Use `bazic pkg sync/verify/sbom` for supply-chain validation and reproducible builds.
 
 ## 13. Migration and Stability
 See `LANGUAGE.md` compatibility policy and `MIGRATIONS.md` for deprecations.
