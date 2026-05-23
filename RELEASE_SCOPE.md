@@ -45,25 +45,31 @@ These are explicitly out of scope for initial go-live unless they become blocker
 
 Stable core for v1:
 
-- `io`
-- `fs`
-- `time`
-- `json`
-- `http`
-- `os`
-- `path`
-- `collections`
+- `std/io`
+- `std/fs`
+- `std/time`
+- `std/json`
+- `std/http`
+- `std/crypto`
+- `std/base64`
+- `std/collections`
+- `std/os`
+- `std/path`
 - test helpers and safety prelude
 
 Experimental or lower-confidence areas for v1:
 
-- `db`
-- `auth`
-- `jwt`
-- `session`
-- `desktop`
-- `web`
-- `ui`
+- `std/db`
+- `std/auth`
+- `std/jwt`
+- `std/session`
+- `std/desktop`
+- `std/web`
+- `std/ui`
+- `std/sql`
+- `std/validate`
+
+See `STDLIB_TIERS.md` for the maintained alpha stable-core split and `RUNTIME_CONTRACT.md` for the broader compiler/runtime/package boundary.
 
 ## Release Quality Bar
 

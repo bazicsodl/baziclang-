@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"baziclang/internal/releasecontract"
 )
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -39,20 +41,14 @@ func TestDoctorCmdPrintsAlphaReleasePosture(t *testing.T) {
 		}
 	})
 	for _, want := range []string{
-		"release track: alpha",
-		"go backend: stable release path",
-		"llvm backend: experimental",
-		"stdlib core: io, fs, time, json, http, crypto, base64, collections, os, path",
-		"stdlib experimental: db, auth, jwt, session, desktop, web, ui, sql, validate",
+		"release track: " + releasecontract.ReleaseTrackAlpha,
+		"go backend: " + releasecontract.GoBackendReleaseStatus,
+		"llvm backend: " + releasecontract.LLVMBackendReleaseStatus,
+		"stdlib core: " + releasecontract.JoinModules(releasecontract.AlphaStableStdModules()),
+		"stdlib experimental: " + releasecontract.JoinModules(releasecontract.AlphaExperimentalStdModules()),
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected doctor output to contain %q, got:\n%s", want, out)
 		}
-	}
-}
-
-func TestJoinModules(t *testing.T) {
-	if got := joinModules([]string{"io", "fs", "time"}); got != "io, fs, time" {
-		t.Fatalf("unexpected joined modules: %q", got)
 	}
 }

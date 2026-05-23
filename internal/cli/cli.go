@@ -18,6 +18,7 @@ import (
 	"baziclang/internal/bazlint"
 	"baziclang/internal/compiler"
 	"baziclang/internal/pkgm"
+	"baziclang/internal/releasecontract"
 	"baziclang/internal/testrun"
 )
 
@@ -25,18 +26,6 @@ type Options struct {
 	BinaryName     string
 	DefaultBackend string
 	Version        string
-}
-
-var alphaStableStdModules = []string{
-	"io", "fs", "time", "json", "http", "crypto", "base64", "collections", "os", "path",
-}
-
-var alphaExperimentalStdModules = []string{
-	"db", "auth", "jwt", "session", "desktop", "web", "ui", "sql", "validate",
-}
-
-func joinModules(mods []string) string {
-	return strings.Join(mods, ", ")
 }
 
 func Run(args []string, opts Options) int {
@@ -904,11 +893,11 @@ func doctorCmd(binaryName string, defaultBackend string, args []string) int {
 		return die(fmt.Sprintf("usage: %s doctor", binaryName))
 	}
 	fail := false
-	fmt.Println("release track: alpha")
-	fmt.Println("go backend: stable release path")
-	fmt.Println("llvm backend: experimental")
-	fmt.Printf("stdlib core: %s\n", joinModules(alphaStableStdModules))
-	fmt.Printf("stdlib experimental: %s\n", joinModules(alphaExperimentalStdModules))
+	fmt.Printf("release track: %s\n", releasecontract.ReleaseTrackAlpha)
+	fmt.Printf("go backend: %s\n", releasecontract.GoBackendReleaseStatus)
+	fmt.Printf("llvm backend: %s\n", releasecontract.LLVMBackendReleaseStatus)
+	fmt.Printf("stdlib core: %s\n", releasecontract.JoinModules(releasecontract.AlphaStableStdModules()))
+	fmt.Printf("stdlib experimental: %s\n", releasecontract.JoinModules(releasecontract.AlphaExperimentalStdModules()))
 	if defaultBackend == "llvm" {
 		if _, err := exec.LookPath("clang"); err != nil {
 			fmt.Println("clang: missing (required for LLVM backend)")

@@ -7,6 +7,7 @@ See `PRODUCTION_READINESS.md` for the remaining steps to reach full production-g
 See `ROADMAP.md` for the execution plan from prototype to public release.
 See `ALPHA_SCOPE.md` for the concrete alpha release contract and supported workflow.
 See `RELEASE_SCOPE.md` for the Bazic v1 release contract and backend policy.
+See `RUNTIME_CONTRACT.md` for the compiler/runtime boundary and supported implicit surface.
 See `STDLIB_TIERS.md` for alpha stable-core vs experimental stdlib modules.
 See `LANGUAGE_SPEC.md` and `STABILITY_POLICY.md` for v1 behavior guarantees.
 See `STDLIB_SECURITY.md` for safe-usage notes across stdlib APIs.

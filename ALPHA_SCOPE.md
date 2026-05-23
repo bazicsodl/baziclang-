@@ -90,6 +90,7 @@ Alpha experimental surface:
 - `std/validate`
 
 See `STDLIB_TIERS.md` for the detailed policy.
+See `RUNTIME_CONTRACT.md` for the maintained boundary between compiler-owned builtins/prelude, runtime implementation, and stdlib package APIs.
 
 ## Alpha Exit Criteria
 

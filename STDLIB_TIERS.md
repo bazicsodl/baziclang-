@@ -2,6 +2,8 @@
 
 This document defines which stdlib modules are part of the Bazic alpha core and which remain experimental.
 
+See `RUNTIME_CONTRACT.md` for how the stdlib tier boundary fits into the broader compiler/runtime contract.
+
 ## Tier 1: Alpha Stable Core
 
 These modules are part of the supported alpha workflow and should be prioritized for compatibility, tests, and docs accuracy.
