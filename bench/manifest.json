@@ -1,0 +1,50 @@
+{
+  "baseline_threshold_percent": 40,
+  "benchmarks": [
+    {
+      "name": "string_concat",
+      "path": "bench/string_concat.bz",
+      "llvm_ratio_target": 4.0
+    },
+    {
+      "name": "string_builder",
+      "path": "bench/string_builder.bz",
+      "llvm_ratio_target": 12.0
+    },
+    {
+      "name": "json_validate",
+      "path": "bench/json_validate.bz",
+      "llvm_ratio_target": 2.0
+    },
+    {
+      "name": "crypto_sha256",
+      "path": "bench/crypto_sha256.bz",
+      "llvm_ratio_target": 2.0
+    },
+    {
+      "name": "parse_int_float",
+      "path": "bench/parse_int_float.bz",
+      "llvm_ratio_target": 3.0
+    },
+    {
+      "name": "loop_arith",
+      "path": "bench/loop_arith.bz",
+      "llvm_ratio_target": 2.0
+    },
+    {
+      "name": "match_hot",
+      "path": "bench/match_hot.bz",
+      "llvm_ratio_target": 2.0
+    },
+    {
+      "name": "base64_roundtrip",
+      "path": "bench/base64_roundtrip.bz",
+      "llvm_ratio_target": 6.0
+    },
+    {
+      "name": "jwt_sign_verify",
+      "path": "bench/jwt_sign_verify.bz",
+      "llvm_ratio_target": 2.0
+    }
+  ]
+}

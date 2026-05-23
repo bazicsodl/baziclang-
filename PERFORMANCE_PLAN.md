@@ -31,6 +31,7 @@ This document defines how we will reach production-grade performance in Bazic.
 ## Tooling
 - `go test -bench` for compiler benchmarks.
 - `scripts/bench.ps1` / `bench_gate.ps1` for runtime benchmarks.
+- `bench/manifest.json` as the shared runtime benchmark suite contract.
 - `bench-baseline-capture` GitHub workflow captures manual per-platform baselines.
 - `scripts/bench_promote.ps1` promotes captured artifacts into checked-in platform baseline files.
 - `scripts/bench_audit.ps1` validates the committed baseline set and compatibility snapshot.

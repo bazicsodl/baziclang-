@@ -6,6 +6,13 @@ This folder contains small, focused performance tests. Run with:
 .\bin\bazic.exe run .\bench\<name>.bz
 ```
 
+`bench/manifest.json` is the shared source of truth for:
+- benchmark membership
+- LLVM ratio targets
+- default baseline threshold metadata
+
+The benchmark scripts and baseline audit consume that manifest directly.
+
 ## Included
 - `loop_arith`
 - `string_concat`

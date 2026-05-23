@@ -23,6 +23,7 @@ To gate regressions (default 3 iterations):
 Gate runs each benchmark multiple times and uses the fastest time to reduce noise.
 The gate prefers `bench/baseline.<platform>.xml` for the current platform and falls back to `bench/baseline.xml`.
 If no matching platform baseline exists, non-Windows platforms automatically switch to **ratio mode** (LLVM vs Go).
+Benchmark membership, LLVM ratio targets, and the default baseline threshold come from `bench/manifest.json`.
 
 To record a fresh baseline:
 ```powershell
@@ -54,7 +55,7 @@ The CI `bench-baseline-audit` job runs the non-strict audit on every change.
 For release-readiness checks, dispatch the workflow manually with `release_readiness=true`.
 That turns on the strict audit automatically and requires committed Windows, Linux, and macOS baseline files.
 
-Bench programs live in `bench/`:
+Bench programs listed in `bench/manifest.json` currently are:
 - `bench/string_concat.bz`
 - `bench/string_builder.bz`
 - `bench/json_validate.bz`

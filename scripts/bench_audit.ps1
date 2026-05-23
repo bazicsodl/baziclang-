@@ -6,12 +6,39 @@ $scriptPath = $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptPath
 $rootDir = Split-Path -Parent $rootDir
 $benchDir = Join-Path $rootDir "bench"
+. (Join-Path $rootDir "scripts\bench_manifest.ps1")
+$benchManifest = Get-BenchManifest $rootDir
+$expectedBenchNames = Get-BenchNames $benchManifest
 
 $platformFiles = @(
     @{ Platform = "windows"; Path = Join-Path $benchDir "baseline.windows.xml" },
     @{ Platform = "linux"; Path = Join-Path $benchDir "baseline.linux.xml" },
     @{ Platform = "macos"; Path = Join-Path $benchDir "baseline.macos.xml" }
 )
+
+function Get-BenchmarkNodeNames($node) {
+    $names = @()
+    foreach ($child in $node.ChildNodes) {
+        if ($child.NodeType -eq [System.Xml.XmlNodeType]::Element) {
+            $names += [string]$child.Name
+        }
+    }
+    return $names
+}
+
+function Test-BenchmarkSet($actual, $expected) {
+    $actualSorted = @($actual | Sort-Object)
+    $expectedSorted = @($expected | Sort-Object)
+    if ($actualSorted.Count -ne $expectedSorted.Count) {
+        return $false
+    }
+    for ($i = 0; $i -lt $expectedSorted.Count; $i++) {
+        if ($actualSorted[$i] -ne $expectedSorted[$i]) {
+            return $false
+        }
+    }
+    return $true
+}
 
 function Read-BaselineXml([string]$path) {
     try {
@@ -37,6 +64,16 @@ function Validate-BaselineDoc([xml]$doc, [string]$expectedPlatform, [string]$pat
     }
     if (-not $baseline.go -or -not $baseline.llvm) {
         Write-Error ("Baseline missing go/llvm sections: {0}" -f $path)
+        return $false
+    }
+    $goNames = Get-BenchmarkNodeNames $baseline.go
+    if (-not (Test-BenchmarkSet $goNames $expectedBenchNames)) {
+        Write-Error ("Go benchmark set does not match bench/manifest.json: {0}" -f $path)
+        return $false
+    }
+    $llvmNames = Get-BenchmarkNodeNames $baseline.llvm
+    if (-not (Test-BenchmarkSet $llvmNames $expectedBenchNames)) {
+        Write-Error ("LLVM benchmark set does not match bench/manifest.json: {0}" -f $path)
         return $false
     }
     return $true
