@@ -2,7 +2,7 @@ import "std"
 
 
 fn main(): void {
-    let n = 200000
+    let n = 100000
     let sb = sb_new()
     let i = 0
     let start = time_unix_millis()

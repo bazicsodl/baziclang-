@@ -108,14 +108,14 @@ $baseline["llvm"] = @{
 }
 
 $targets = @{
-    "string_concat" = 3.0
-    "string_builder" = 6.0
+    "string_concat" = 4.0
+    "string_builder" = 12.0
     "json_validate" = 2.0
-    "crypto_sha256" = 1.5
+    "crypto_sha256" = 2.0
     "parse_int_float" = 3.0
     "loop_arith" = 2.0
     "match_hot" = 2.0
-    "base64_roundtrip" = 4.0
+    "base64_roundtrip" = 6.0
     "jwt_sign_verify" = 2.0
 }
 

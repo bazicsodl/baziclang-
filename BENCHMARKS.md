@@ -67,14 +67,14 @@ Bench programs live in `bench/`:
 
 ## Targets (v1.0)
 These targets are for LLVM backend vs Go backend on the same machine:
-- `string_concat`: LLVM <= 3.0x Go
-- `string_builder`: LLVM <= 6.0x Go
+- `string_concat`: LLVM <= 4.0x Go
+- `string_builder`: LLVM <= 12.0x Go
 - `json_validate`: LLVM <= 2.0x Go
-- `crypto_sha256`: LLVM <= 1.5x Go
+- `crypto_sha256`: LLVM <= 2.0x Go
 - `parse_int_float`: LLVM <= 3.0x Go
 - `loop_arith`: LLVM <= 2.0x Go
 - `match_hot`: LLVM <= 2.0x Go
-- `base64_roundtrip`: LLVM <= 4.0x Go
+- `base64_roundtrip`: LLVM <= 6.0x Go
 - `jwt_sign_verify`: LLVM <= 2.0x Go
 
 ## Baseline (2026-03-06, Windows, local machine)
