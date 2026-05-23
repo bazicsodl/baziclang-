@@ -302,6 +302,146 @@ static Result_string_Error err_string(const char *msg) {
 	return r;
 }
 
+typedef struct BazicStringBuilderEntry {
+	char *handle;
+	char *buf;
+	size_t len;
+	size_t cap;
+	struct BazicStringBuilderEntry *next;
+} BazicStringBuilderEntry;
+
+static BazicStringBuilderEntry *bazic_sb_head = NULL;
+static uint64_t bazic_sb_seq = 0;
+
+static BazicStringBuilderEntry *bazic_sb_find(const char *handle) {
+	for (BazicStringBuilderEntry *cur = bazic_sb_head; cur != NULL; cur = cur->next) {
+		if (cur->handle && handle && strcmp(cur->handle, handle) == 0) {
+			return cur;
+		}
+	}
+	return NULL;
+}
+
+static BazicStringBuilderEntry *bazic_sb_create_with_handle(const char *handle) {
+	BazicStringBuilderEntry *entry = (BazicStringBuilderEntry *)calloc(1, sizeof(BazicStringBuilderEntry));
+	if (!entry) {
+		return NULL;
+	}
+	entry->handle = bazic_strdup(handle ? handle : "");
+	entry->cap = 64;
+	entry->buf = (char *)malloc(entry->cap);
+	if (!entry->handle || !entry->buf) {
+		free(entry->handle);
+		free(entry->buf);
+		free(entry);
+		return NULL;
+	}
+	entry->buf[0] = '\0';
+	entry->next = bazic_sb_head;
+	bazic_sb_head = entry;
+	return entry;
+}
+
+static BazicStringBuilderEntry *bazic_sb_get(const char *handle) {
+	if (!handle || handle[0] == '\0') {
+		return NULL;
+	}
+	BazicStringBuilderEntry *entry = bazic_sb_find(handle);
+	if (entry) {
+		return entry;
+	}
+	return bazic_sb_create_with_handle(handle);
+}
+
+static BazicStringBuilderEntry *bazic_sb_new_entry(void) {
+	char handle[32];
+	bazic_sb_seq++;
+	snprintf(handle, sizeof(handle), "%llu", (unsigned long long)bazic_sb_seq);
+	return bazic_sb_create_with_handle(handle);
+}
+
+static bool bazic_sb_append_bytes(BazicStringBuilderEntry *entry, const char *s) {
+	if (!entry || !s) {
+		return true;
+	}
+	size_t add = strlen(s);
+	size_t need = entry->len + add + 1;
+	if (need > entry->cap) {
+		size_t nextCap = entry->cap;
+		while (nextCap < need) {
+			nextCap *= 2;
+		}
+		char *next = (char *)realloc(entry->buf, nextCap);
+		if (!next) {
+			return false;
+		}
+		entry->buf = next;
+		entry->cap = nextCap;
+	}
+	memcpy(entry->buf + entry->len, s, add + 1);
+	entry->len += add;
+	return true;
+}
+
+char *__std_sb_new(void) {
+	BazicStringBuilderEntry *entry = bazic_sb_new_entry();
+	if (!entry) {
+		return bazic_strdup("");
+	}
+	return bazic_strdup(entry->handle);
+}
+
+char *__std_sb_append(char *handle, char *s) {
+	BazicStringBuilderEntry *entry = NULL;
+	if (!handle || handle[0] == '\0') {
+		entry = bazic_sb_new_entry();
+	} else {
+		entry = bazic_sb_get(handle);
+	}
+	if (!entry) {
+		return bazic_strdup("");
+	}
+	if (!bazic_sb_append_bytes(entry, s ? s : "")) {
+		return bazic_strdup(entry->handle);
+	}
+	return bazic_strdup(entry->handle);
+}
+
+char *__std_sb_string(char *handle) {
+	if (!handle || handle[0] == '\0') {
+		return bazic_strdup("");
+	}
+	BazicStringBuilderEntry *entry = bazic_sb_find(handle);
+	if (!entry || !entry->buf) {
+		return bazic_strdup("");
+	}
+	return bazic_strdup(entry->buf);
+}
+
+int64_t __std_sb_len(char *handle) {
+	if (!handle || handle[0] == '\0') {
+		return 0;
+	}
+	BazicStringBuilderEntry *entry = bazic_sb_find(handle);
+	if (!entry) {
+		return 0;
+	}
+	return (int64_t)entry->len;
+}
+
+char *__std_sb_clear(char *handle) {
+	if (!handle || handle[0] == '\0') {
+		return __std_sb_new();
+	}
+	BazicStringBuilderEntry *entry = bazic_sb_get(handle);
+	if (!entry || !entry->buf) {
+		return bazic_strdup("");
+	}
+	entry->len = 0;
+	entry->buf[0] = '\0';
+	return bazic_strdup(entry->handle);
+}
+
 static Result_bool_Error ok_bool(bool v) {
 	Result_bool_Error r;
 	r.is_ok = true;

@@ -12,6 +12,11 @@ func TestGoStdRuntimeHelperCodeIncludesCoreHelpers(t *testing.T) {
 		"func __std_time_add_days(rfc3339 string, days int64) Result[string, Error]",
 		"func __std_getenv(key string) Result[string, Error]",
 		"func __std_path_join(a string, b string) string",
+		"func __std_sb_new() string",
+		"func __std_sb_append(handle string, s string) string",
+		"func __std_sb_string(handle string) string",
+		"func __std_sb_len(handle string) int64",
+		"func __std_sb_clear(handle string) string",
 	} {
 		if !strings.Contains(code, want) {
 			t.Fatalf("expected helper code to include %q", want)

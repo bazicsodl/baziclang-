@@ -47,7 +47,9 @@ fn main(): void {
 	if err != nil {
 		t.Fatalf("llvm run failed: %v\n%s", err, outLlvm)
 	}
-	if strings.TrimSpace(outGo) != strings.TrimSpace(outLlvm) {
+	normGo := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outGo, "\r\n", "\n"), "\r", "\n"))
+	normLlvm := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outLlvm, "\r\n", "\n"), "\r", "\n"))
+	if normGo != normLlvm {
 		t.Fatalf("parity mismatch: go='%s' llvm='%s'", outGo, outLlvm)
 	}
 }
@@ -78,7 +80,9 @@ fn main(): void {
 	if err != nil {
 		t.Fatalf("llvm run failed: %v\n%s", err, outLlvm)
 	}
-	if strings.TrimSpace(outGo) != strings.TrimSpace(outLlvm) {
+	normGo := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outGo, "\r\n", "\n"), "\r", "\n"))
+	normLlvm := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outLlvm, "\r\n", "\n"), "\r", "\n"))
+	if normGo != normLlvm {
 		t.Fatalf("parity mismatch: go='%s' llvm='%s'", outGo, outLlvm)
 	}
 }
@@ -111,7 +115,9 @@ fn main(): void {
 	if err != nil {
 		t.Fatalf("llvm run failed: %v\n%s", err, outLlvm)
 	}
-	if strings.TrimSpace(outGo) != strings.TrimSpace(outLlvm) {
+	normGo := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outGo, "\r\n", "\n"), "\r", "\n"))
+	normLlvm := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outLlvm, "\r\n", "\n"), "\r", "\n"))
+	if normGo != normLlvm {
 		t.Fatalf("parity mismatch: go='%s' llvm='%s'", outGo, outLlvm)
 	}
 }
@@ -222,6 +228,49 @@ fn main(): void {
 		t.Fatalf("llvm run failed: %v\n%s", err, outLlvm)
 	}
 	if strings.TrimSpace(outGo) != strings.TrimSpace(outLlvm) {
+		t.Fatalf("parity mismatch: go='%s' llvm='%s'", outGo, outLlvm)
+	}
+}
+
+func TestStdParityGoVsLLVM_Collections(t *testing.T) {
+	root, err := projectRoot()
+	if err != nil {
+		t.Fatalf("project root: %v", err)
+	}
+	src := `import "std";
+
+fn main(): void {
+    let sb = sb_new();
+    let sb2 = sb_append(sb, "a");
+    let sb3 = sb_append_line(sb2, "b");
+    let sb4 = sb_append(sb3, "c");
+    print(str(sb_len(sb4)));
+    print("|");
+    print(sb_string(sb4));
+    print("|");
+    let sb5 = sb_clear(sb4);
+    print(str(sb_len(sb5)));
+    print("|");
+    print(sb_string(sb5));
+}
+`
+	p := filepath.Join(root, "_tmp_parity_collections.bz")
+	if err := writeFile(p, src); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	defer removeFile(p)
+
+	outGo, err := runBazic(p, "go")
+	if err != nil {
+		t.Fatalf("go run failed: %v\n%s", err, outGo)
+	}
+	outLlvm, err := runBazic(p, "llvm")
+	if err != nil {
+		t.Fatalf("llvm run failed: %v\n%s", err, outLlvm)
+	}
+	normGo := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outGo, "\r\n", "\n"), "\r", "\n"))
+	normLlvm := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(outLlvm, "\r\n", "\n"), "\r", "\n"))
+	if normGo != normLlvm {
 		t.Fatalf("parity mismatch: go='%s' llvm='%s'", outGo, outLlvm)
 	}
 }

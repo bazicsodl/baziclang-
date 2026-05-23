@@ -51,6 +51,7 @@ var baseGoRuntimeImports = []string{
 	"\"runtime\"",
 	"\"strconv\"",
 	"\"strings\"",
+	"\"sync\"",
 	"\"time\"",
 	"\"unicode/utf8\"",
 }
@@ -58,7 +59,6 @@ var baseGoRuntimeImports = []string{
 var goRuntimeImportRules = []goRuntimeImportRule{
 	{feature: RuntimeFeatureGoImportHMAC, importValue: "\"crypto/hmac\""},
 	{feature: RuntimeFeatureGoImportBcrypt, importValue: "\"golang.org/x/crypto/bcrypt\""},
-	{feature: RuntimeFeatureGoImportSync, importValue: "\"sync\""},
 	{target: "wasm", importValue: "\"syscall/js\""},
 	{feature: RuntimeFeatureGoDB, importValue: "\"database/sql\""},
 	{feature: RuntimeFeatureGoDB, targetNot: "wasm", importValue: "_ \"github.com/go-sql-driver/mysql\""},
