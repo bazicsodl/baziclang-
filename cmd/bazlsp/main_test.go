@@ -27,6 +27,9 @@ func TestHoverForUsesIntrinsicSurfaceRegistry(t *testing.T) {
 	if got := hoverFor("package"); !strings.Contains(got, "Package declaration") {
 		t.Fatalf("expected package hover, got %q", got)
 	}
+	if got := hoverFor("if"); !strings.Contains(got, "Conditional branch") {
+		t.Fatalf("expected if hover, got %q", got)
+	}
 	if got := hoverFor("assert_msg"); !strings.Contains(got, "fn assert_msg(bool, string): void") {
 		t.Fatalf("expected intrinsic hover signature, got %q", got)
 	}

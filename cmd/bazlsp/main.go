@@ -13,6 +13,7 @@ import (
 	"baziclang/internal/bazfmt"
 	"baziclang/internal/diag"
 	"baziclang/internal/intrinsics"
+	"baziclang/internal/langsurface"
 	"baziclang/internal/lexer"
 	"baziclang/internal/parser"
 	"baziclang/internal/sema"
@@ -517,68 +518,19 @@ func indexDocSymbols(text string) []docSymbol {
 }
 
 func hoverFor(word string) string {
-	switch word {
-	case "as":
-		return "Import alias binding."
-	case "const":
-		return "Immutable local or global binding."
-	case "fn":
-		return "Function declaration"
-	case "import":
-		return "Import declaration"
-	case "impl":
-		return "Interface implementation"
-	case "interface":
-		return "Interface declaration"
-	case "let":
-		return "Local or global binding"
-	case "match":
-		return "Exhaustive enum match"
-	case "nil":
-		return "Nil literal. Bazic currently rejects nil in safe code."
-	case "package":
-		return "Package declaration."
-	case "pub":
-		return "Export a top-level declaration from a package."
-	case "return":
-		return "Return from the current function."
-	case "struct":
-		return "Struct declaration"
-	case "enum":
-		return "Enum declaration"
-	case "true", "false":
-		return "Boolean literal."
-	case "while":
-		return "While loop."
-	default:
-		if spec, ok := intrinsics.LookupSurfaceFunction(word); ok {
-			return spec.Hover()
-		}
-		return ""
+	if spec, ok := langsurface.LookupKeyword(word); ok {
+		return spec.Hover
 	}
+	if spec, ok := intrinsics.LookupSurfaceFunction(word); ok {
+		return spec.Hover()
+	}
+	return ""
 }
 
 func completionItemsForSurface() []completionItem {
-	items := []completionItem{
-		{Label: "as", Kind: 14},
-		{Label: "const", Kind: 14},
-		{Label: "else", Kind: 14},
-		{Label: "enum", Kind: 14},
-		{Label: "false", Kind: 12},
-		{Label: "fn", Kind: 14},
-		{Label: "if", Kind: 14},
-		{Label: "impl", Kind: 14},
-		{Label: "import", Kind: 14},
-		{Label: "interface", Kind: 14},
-		{Label: "let", Kind: 14},
-		{Label: "match", Kind: 14},
-		{Label: "nil", Kind: 12},
-		{Label: "package", Kind: 14},
-		{Label: "pub", Kind: 14},
-		{Label: "return", Kind: 14},
-		{Label: "struct", Kind: 14},
-		{Label: "true", Kind: 12},
-		{Label: "while", Kind: 14},
+	items := make([]completionItem, 0, len(langsurface.KeywordSpecs())+len(intrinsics.SurfaceFunctionSpecs()))
+	for _, spec := range langsurface.KeywordSpecs() {
+		items = append(items, completionItem{Label: spec.Name, Kind: spec.CompletionKind})
 	}
 	for _, spec := range intrinsics.SurfaceFunctionSpecs() {
 		items = append(items, completionItem{Label: spec.Name, Kind: 3})
