@@ -1,6 +1,7 @@
 package codegenllvm
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -324,6 +325,70 @@ func TestEmitCallValueStmtMIRLLVMBoxesAnyArgsThroughSharedCoercion(t *testing.T)
 	}
 	if typ != ast.TypeInt || !strings.Contains(code, "inttoptr i64 7 to ptr") || !strings.Contains(code, "call i64 @accept_any(%Any") {
 		t.Fatalf("expected boxed any arg emission, got:\n%s", code)
+	}
+}
+
+func TestEmitCallValueStmtMIRLLVMReconstructsCompactBoolResultABI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows uses sret for Result[bool,Error]")
+	}
+	ctx := newFuncCtx(
+		enumInfo{},
+		structPool{byName: map[string]structInfo{
+			"Error": {
+				Fields:     []structFieldInfo{{Name: "message", Type: ast.TypeString}},
+				FieldIndex: map[string]int{"message": 0},
+			},
+			intrinsics.LLVMResultStructName("bool", "Error"): {
+				Fields: []structFieldInfo{
+					{Name: "is_ok", Type: ast.TypeBool},
+					{Name: "value", Type: ast.TypeBool},
+					{Name: "err", Type: ast.Type("Error")},
+				},
+				FieldIndex: map[string]int{"is_ok": 0, "value": 1, "err": 2},
+			},
+		}},
+		interfacePool{names: map[string]bool{}},
+		stringPool{},
+		false,
+		nil,
+	)
+	code, value, typ, ok := emitCallValueStmtMIRLLVM(ctx, &mir.CallStmt{
+		Name: "verified",
+		Func: "__std_jwt_verify_hs256",
+		Args: []mir.Expr{
+			&mir.StringExpr{Value: "token"},
+			&mir.StringExpr{Value: "secret"},
+		},
+	}, map[string]llvmFuncSig{
+		"__std_jwt_verify_hs256": {Params: []ast.Type{ast.TypeString, ast.TypeString}, Ret: ast.Type("Result__bool__Error")},
+	})
+	if !ok {
+		t.Fatalf("expected compact bool result call emission to succeed")
+	}
+	if typ != ast.Type("Result__bool__Error") || value == "" {
+		t.Fatalf("unexpected compact bool result emission: value=%q typ=%s", value, typ)
+	}
+	if runtime.GOOS == "darwin" {
+		if !strings.Contains(code, "call [2 x i64] @__std_jwt_verify_hs256") {
+			t.Fatalf("expected darwin compact bool call ABI, got:\n%s", code)
+		}
+		if !strings.Contains(code, "extractvalue [2 x i64]") || !strings.Contains(code, "inttoptr i64") {
+			t.Fatalf("expected darwin compact bool reconstruction, got:\n%s", code)
+		}
+	} else {
+		if !strings.Contains(code, "call { i64, ptr } @__std_jwt_verify_hs256") {
+			t.Fatalf("expected linux compact bool call ABI, got:\n%s", code)
+		}
+		if !strings.Contains(code, "extractvalue { i64, ptr }") {
+			t.Fatalf("expected linux compact bool reconstruction, got:\n%s", code)
+		}
+	}
+	if strings.Contains(code, "alloca [2 x i64]") || strings.Contains(code, "load %Result__bool__Error, ptr") {
+		t.Fatalf("expected direct compact bool reconstruction instead of store/load reinterpretation, got:\n%s", code)
+	}
+	if !strings.Contains(code, "lshr i64") || !strings.Contains(code, "insertvalue %Result__bool__Error") {
+		t.Fatalf("expected logical bool-result rebuild, got:\n%s", code)
 	}
 }
 

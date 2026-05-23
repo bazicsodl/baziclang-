@@ -2454,6 +2454,10 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 		}
 		tmp := ctx.ir.nextTmp()
 		b.WriteString(fmt.Sprintf("  %s = call %s%s @%s(%s)\n", tmp, intrinsics.LLVMCallRetPrefix(st.Func, ret), retType, st.Func, strings.Join(argParts, ", ")))
+		if code, value, typ, ok := decodeLLVMCompactBoolResultValue(ctx, tmp, retType, ret); ok {
+			b.WriteString(code)
+			return b.String(), value, typ, true
+		}
 		if ret == ast.TypeBool && retType == "i1" && valueABI.LLVMType == "i8" {
 			tmp8 := ctx.ir.nextTmp()
 			b.WriteString(fmt.Sprintf("  %s = zext i1 %s to i8\n", tmp8, tmp))
@@ -2493,6 +2497,51 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 		return b.String(), loadTmp, loadType, true
 	}
 	return "", "", ast.TypeInvalid, false
+}
+
+func decodeLLVMCompactBoolResultValue(ctx *funcCtx, value string, abiType string, logicalType ast.Type) (string, string, ast.Type, bool) {
+	logicalType = normalizeLLVMType(logicalType)
+	if logicalType != ast.Type(intrinsics.LLVMResultStructName("bool", "Error")) {
+		return "", "", ast.TypeInvalid, false
+	}
+	valueABI, ok := ctx.abi().valueABI(logicalType)
+	if !ok {
+		return "", "", ast.TypeInvalid, false
+	}
+
+	word0 := ctx.ir.nextTmp()
+	code := ""
+	var errPtr string
+	switch abiType {
+	case "[2 x i64]":
+		code += fmt.Sprintf("  %s = extractvalue [2 x i64] %s, 0\n", word0, value)
+		errBits := ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = extractvalue [2 x i64] %s, 1\n", errBits, value)
+		errPtr = ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = inttoptr i64 %s to ptr\n", errPtr, errBits)
+	case "{ i64, ptr }":
+		code += fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 0\n", word0, value)
+		errPtr = ctx.ir.nextTmp()
+		code += fmt.Sprintf("  %s = extractvalue { i64, ptr } %s, 1\n", errPtr, value)
+	default:
+		return "", "", ast.TypeInvalid, false
+	}
+
+	ok8 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = trunc i64 %s to i8\n", ok8, word0)
+	word1 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = lshr i64 %s, 8\n", word1, word0)
+	val8 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = trunc i64 %s to i8\n", val8, word1)
+	errValue := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = insertvalue %%Error undef, ptr %s, 0\n", errValue, errPtr)
+	result0 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = insertvalue %s undef, i8 %s, 0\n", result0, valueABI.LLVMType, ok8)
+	result1 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = insertvalue %s %s, i8 %s, 1\n", result1, valueABI.LLVMType, result0, val8)
+	result2 := ctx.ir.nextTmp()
+	code += fmt.Sprintf("  %s = insertvalue %s %s, %%Error %s, 2\n", result2, valueABI.LLVMType, result1, errValue)
+	return code, result2, valueABI.NormalizedType, true
 }
 
 func emitFieldAccessValueStmtMIRLLVM(ctx *funcCtx, st *mir.FieldAccessStmt, funcs map[string]llvmFuncSig) (string, string, ast.Type, bool) {
