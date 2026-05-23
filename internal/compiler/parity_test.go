@@ -321,9 +321,9 @@ func runBazic(file string, backend string) (string, error) {
 	cmd.Env = append(os.Environ(), "BAZIC_HOME="+root)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), err
+		return filterGoToolNoise(string(out)), err
 	}
-	return string(out), nil
+	return filterGoToolNoise(string(out)), nil
 }
 
 type paritySyncError struct {
@@ -332,4 +332,19 @@ type paritySyncError struct {
 
 func (e *paritySyncError) Error() string {
 	return e.msg
+}
+
+func filterGoToolNoise(out string) string {
+	if out == "" {
+		return out
+	}
+	lines := strings.Split(out, "\n")
+	filtered := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(line, "go: downloading ") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }
