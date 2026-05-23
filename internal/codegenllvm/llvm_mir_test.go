@@ -366,6 +366,9 @@ func TestEmitCallValueStmtMIRLLVMUsesAlignedSRetForStdResultCalls(t *testing.T) 
 	if typ != ast.Type("Result__string__Error") || value == "" {
 		t.Fatalf("unexpected sret result call emission: value=%q typ=%s", value, typ)
 	}
+	if !strings.Contains(code, "alloca %Result__string__Error, align 8") {
+		t.Fatalf("expected aligned sret temp alloca, got:\n%s", code)
+	}
 	if !strings.Contains(code, "call void @__std_read_file(ptr sret(%Result__string__Error) align 8") {
 		t.Fatalf("expected aligned sret std call emission, got:\n%s", code)
 	}

@@ -1385,7 +1385,7 @@ func emitTrimSpace(strs stringPool) string {
 	b.WriteString("entry:\n")
 	emitNormalizedRuntimeStringPtr(&b, strs, "s_safe", "s")
 	b.WriteString("  %len = call i64 @strlen(ptr %s_safe)\n")
-	b.WriteString("  %start = alloca i64\n")
+	b.WriteString("  %start = alloca i64, align 8\n")
 	b.WriteString("  store i64 0, ptr %start\n")
 	b.WriteString("  br label %loop_start\n")
 	b.WriteString("loop_start:\n")
@@ -1405,7 +1405,7 @@ func emitTrimSpace(strs stringPool) string {
 	b.WriteString("  br label %loop_start\n")
 	b.WriteString("start_done:\n")
 	b.WriteString("  %startVal = load i64, ptr %start\n")
-	b.WriteString("  %end = alloca i64\n")
+	b.WriteString("  %end = alloca i64, align 8\n")
 	b.WriteString("  %last = sub i64 %len, 1\n")
 	b.WriteString("  store i64 %last, ptr %end\n")
 	b.WriteString("  br label %loop_end\n")
@@ -1503,9 +1503,9 @@ func emitReplace(strs stringPool) string {
 	b.WriteString("retorig:\n")
 	b.WriteString("  ret ptr %s_safe\n")
 	b.WriteString("count_block:\n")
-	b.WriteString("  %count = alloca i64\n")
+	b.WriteString("  %count = alloca i64, align 8\n")
 	b.WriteString("  store i64 0, ptr %count\n")
-	b.WriteString("  %cursor = alloca ptr\n")
+	b.WriteString("  %cursor = alloca ptr, align 8\n")
 	b.WriteString("  store ptr %s_safe, ptr %cursor\n")
 	b.WriteString("  br label %count_loop\n")
 	b.WriteString("count_loop:\n")
@@ -1535,8 +1535,8 @@ func emitReplace(strs stringPool) string {
 	b.WriteString("  %bufNull = icmp eq ptr %buf, null\n")
 	b.WriteString("  br i1 %bufNull, label %oom, label %alloc_ok\n")
 	b.WriteString("alloc_ok:\n")
-	b.WriteString("  %src = alloca ptr\n")
-	b.WriteString("  %dst = alloca ptr\n")
+	b.WriteString("  %src = alloca ptr, align 8\n")
+	b.WriteString("  %dst = alloca ptr, align 8\n")
 	b.WriteString("  store ptr %s_safe, ptr %src\n")
 	b.WriteString("  store ptr %buf, ptr %dst\n")
 	b.WriteString("  br label %loop\n")
@@ -1627,7 +1627,7 @@ func emitParseInt(structs structPool, strs stringPool) string {
 	b.WriteString(fmt.Sprintf("define %%%s @%s(ptr %%s) {\n", resultName, intrinsics.LLVMRuntimeParseIntFunc))
 	b.WriteString("entry:\n")
 	emitNormalizedRuntimeStringPtr(&b, strs, "s_safe", "s")
-	b.WriteString("  %endptr = alloca ptr\n")
+	b.WriteString("  %endptr = alloca ptr, align 8\n")
 	b.WriteString("  %val = call i64 @strtol(ptr %s_safe, ptr %endptr, i32 10)\n")
 	b.WriteString("  %end = load ptr, ptr %endptr\n")
 	b.WriteString("  %same = icmp eq ptr %end, %s_safe\n")
@@ -1677,7 +1677,7 @@ func emitParseFloat(structs structPool, strs stringPool) string {
 	b.WriteString(fmt.Sprintf("define %%%s @%s(ptr %%s) {\n", resultName, intrinsics.LLVMRuntimeParseFloatFunc))
 	b.WriteString("entry:\n")
 	emitNormalizedRuntimeStringPtr(&b, strs, "s_safe", "s")
-	b.WriteString("  %endptr = alloca ptr\n")
+	b.WriteString("  %endptr = alloca ptr, align 8\n")
 	b.WriteString("  %val = call double @strtod(ptr %s_safe, ptr %endptr)\n")
 	b.WriteString("  %end = load ptr, ptr %endptr\n")
 	b.WriteString("  %same = icmp eq ptr %end, %s_safe\n")
@@ -1970,7 +1970,7 @@ func (p llvmStructFieldResolvePlan) resolve() (llvmStructFieldRef, bool) {
 
 func (p llvmAllocaPlan) emitWithLLVMType(llvmType string) string {
 	ptr := p.ctx.ir.nextTmp()
-	p.b.WriteString(fmt.Sprintf("  %s = alloca %s\n", ptr, llvmType))
+	p.b.WriteString(fmt.Sprintf("  %s = alloca %s, align 8\n", ptr, llvmType))
 	return ptr
 }
 
@@ -2101,7 +2101,7 @@ func buildLLVMFuncBodyPlan(ctx *funcCtx, fn *mir.FuncDecl) (llvmFuncBodyPlan, er
 func renderLLVMFuncLocalAllocas(b *strings.Builder, ctx *funcCtx, localABIs []intrinsics.LLVMNamedStorageABI) {
 	for _, local := range localABIs {
 		ptr := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", ptr, local.Storage.LLVMType))
+		b.WriteString(fmt.Sprintf("  %s = alloca %s, align 8\n", ptr, local.Storage.LLVMType))
 		ctx.vars[local.Name] = varSlot{ptr: ptr, typ: local.Storage.NormalizedType}
 	}
 }
@@ -2428,7 +2428,7 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 		return b.String(), "", ast.TypeVoid, true
 	case intrinsics.LLVMCallSRet:
 		tmpPtr := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
+		b.WriteString(fmt.Sprintf("  %s = alloca %s, align 8\n", tmpPtr, retType))
 		args := append([]string{fmt.Sprintf("ptr sret(%s) align 8 %s", retType, tmpPtr)}, argParts...)
 		b.WriteString(fmt.Sprintf("  call void @%s(%s)\n", st.Func, strings.Join(args, ", ")))
 		loadCode, tmp, loadType, ok := ctx.emitLoadLLVMValue(tmpPtr, ret)
@@ -2477,7 +2477,7 @@ func (p llvmCallEmitPlan) emit() (string, string, ast.Type, bool) {
 			return b.String(), tmp, ret, true
 		}
 		tmpPtr := ctx.ir.nextTmp()
-		b.WriteString(fmt.Sprintf("  %s = alloca %s\n", tmpPtr, retType))
+		b.WriteString(fmt.Sprintf("  %s = alloca %s, align 8\n", tmpPtr, retType))
 		b.WriteString(fmt.Sprintf("  store %s %s, ptr %s\n", retType, tmp, tmpPtr))
 		loadCode, loadTmp, loadType, ok := ctx.emitLoadLLVMValue(tmpPtr, ret)
 		if !ok {
